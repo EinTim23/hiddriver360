@@ -347,19 +347,19 @@ int16_t ConvertToFullRange(uint8_t input, bool invert_y = false) {
         return static_cast<int16_t>((~(input) - 128) * 256);
 }
 
-
-
 DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
     DWORD status = XamInputGetStateDetour.GetOriginal<decltype(&XamInputGetStateHook)>()(user, flags, input_state);
-    uint32_t actual_user_index = user;
-    if ((actual_user_index & 0xFF) == 0xFF) 
-        actual_user_index = 0;
-    
+
+    if ((user & 0xFF) == 0xFF)
+        user = 0;
+
     if (!input_state)
         return status;
 
-    if (status == ERROR_DEVICE_NOT_CONNECTED) {
+    static DWORD lastPressTime = 0;  
+    static const DWORD cooldownDuration = 1000; 
 
+    if (status == ERROR_DEVICE_NOT_CONNECTED) {
         ButtonsReport b;
         Controller* c = nullptr;
         for (int i = 0; i < 4; i++) {
@@ -372,17 +372,27 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
             }
         }
 
-       if (!c)
+        if (!c)
             return status;
 
-        if (b.cross) 
+
+        if (b.ps) {
+            DWORD now = GetTickCount(); 
+            if (now - lastPressTime >= cooldownDuration) {
+                lastPressTime = now; 
+                XamInputSendXenonButtonPress(user);  
+            }
+        }
+
+        if (b.cross)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_A;
-        
+
         if (b.circle)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_B;
 
         if (b.triangle)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
+
         if (b.square)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_X;
 
@@ -404,10 +414,7 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
         if (b.r1)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
 
-        if (b.ps)
-            XamInputSendXenonButtonPress(user);
-
-        if(b.hatSwitch == 0)
+        if (b.hatSwitch == 0)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP;
 
         if (b.hatSwitch == 2)
@@ -418,7 +425,7 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
 
         if (b.hatSwitch == 6)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
-        
+
         input_state->Gamepad.sThumbRX = ConvertToFullRange(b.z);
         input_state->Gamepad.sThumbRY = ConvertToFullRange(b.rz, true);
 
