@@ -11,6 +11,7 @@
 Detour HidAddDeviceDetour;
 Detour HidRemoveDeviceDetour;
 Detour XamInputGetStateDetour;
+Detour XamInputGetCapabilitiesDetour;
 
 uint16_t swap_endianness_16(uint16_t val) {
     return (val >> 8) | (val << 8);
@@ -216,6 +217,7 @@ struct Controller {
     HidControllerExtension* controllerDriver;
     ButtonsReport currentState;
     uint8_t userIndex;
+    uint32_t packetNumber;
     ControllerType controllerType;
     void* reportData;
 } __declspec(align(4));
@@ -358,6 +360,7 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
        
         Controller c = Controller();
         c.controllerType = controllerType;
+        c.packetNumber = 0;
         HidControllerExtension* controllerDriver = new HidControllerExtension();
         c.deviceHandle = deviceHandle;
 
@@ -436,13 +439,13 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
     if (!input_state)
         return status;
 
-    static DWORD lastPressTime = 0;  
-    static const DWORD cooldownDuration = 1000; 
+    static DWORD lastPressTime = 0;
+    static const DWORD cooldownDuration = 1000;
 
     if (status == ERROR_DEVICE_NOT_CONNECTED) {
         ButtonsReport b;
         Controller* c = nullptr;
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
             if (connectedControllers[i].controllerDriver) {
                 if (connectedControllers[i].userIndex == user) {
                     c = &connectedControllers[i];
@@ -457,10 +460,10 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
 
 
         if (b.ps) {
-            DWORD now = GetTickCount(); 
+            DWORD now = GetTickCount();
             if (now - lastPressTime >= cooldownDuration) {
-                lastPressTime = now; 
-                XamInputSendXenonButtonPress(user);  
+                lastPressTime = now;
+                XamInputSendXenonButtonPress(user);
             }
         }
 
@@ -514,13 +517,64 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
 
         input_state->Gamepad.bLeftTrigger = b.rx;
         input_state->Gamepad.bRightTrigger = b.ry;
+        input_state->dwPacketNumber = ++c->packetNumber;
 
         return ERROR_SUCCESS;
     }
     return status;
 }
 
+typedef struct _XINPUT_CAPABILITIESEX
+{
+    BYTE                                Type;
+    BYTE                                SubType;
+    WORD                                Flags;
+    XINPUT_GAMEPAD                      Gamepad;
+    XINPUT_VIBRATION                    Vibration;
+    DWORD unk1;
+    DWORD unk2;
+    DWORD unk3;
+} XINPUT_CAPABILITIES_EX, * PXINPUT_CAPABILITIES_EX;
+
+DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_CAPABILITIES_EX* capabilities) {
+    DWORD status = XamInputGetCapabilitiesDetour.GetOriginal<decltype(&XamInputGetCapabilitiesExHook)>()(unk, user, flags, capabilities);
+
+    if ((user & 0xFF) == 0xFF)
+        user = 0;
+
+    if (!capabilities)
+        return status;
+
+    if (status == ERROR_DEVICE_NOT_CONNECTED) {
+        Controller* c = nullptr;
+        for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
+            if (connectedControllers[i].controllerDriver) {
+                if (connectedControllers[i].userIndex == user) {
+                    c = &connectedControllers[i];
+                    break;
+                }
+            }
+        }
+
+        if (!c)
+            return status;
+
+        capabilities->Type = XINPUT_DEVTYPE_GAMEPAD;
+        capabilities->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
+        capabilities->Flags = 0;
+
+        XINPUT_STATE state;
+        memset(&state, 0, sizeof(XINPUT_STATE));
+        XamInputGetStateHook(user, 0, &state);
+        capabilities->Gamepad = state.Gamepad;
+        capabilities->Vibration.wLeftMotorSpeed = 0;
+        capabilities->Vibration.wRightMotorSpeed = 0;
+        return ERROR_SUCCESS;
+    }
+}
+
 void* XamInputGetState = nullptr;
+void* XamInputGetCapabilitiesEx = nullptr;
 bool isDevkit = true;
 
 bool initFunctionPointers() {
@@ -545,6 +599,7 @@ bool initFunctionPointers() {
     XexGetProcedureAddress(kernelHandle, 749, &UsbdQueueCloseDefaultEndpoint);
     XexGetProcedureAddress(kernelHandle, 751, &UsbdRemoveDeviceComplete);
 
+    XexGetProcedureAddress(xamHandle, 685, &XamInputGetCapabilitiesEx);
     XexGetProcedureAddress(xamHandle, 401, &XamInputGetState);
 
     if (isDevkit) {
@@ -586,8 +641,11 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved)
 		HidAddDeviceDetour.Install();
         HidRemoveDeviceDetour.Install();
 
+        XamInputGetCapabilitiesDetour = Detour(XamInputGetCapabilitiesEx, (void*)XamInputGetCapabilitiesExHook);
         XamInputGetStateDetour = Detour(XamInputGetState, (void*)XamInputGetStateHook);
+
         XamInputGetStateDetour.Install();
+        XamInputGetCapabilitiesDetour.Install();
 		DbgPrint("EINTIM: Hooks installed\n");
 	}
 	return TRUE;
