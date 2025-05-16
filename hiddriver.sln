@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28307.271
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hiddriver", "hiddriver\hiddriver.vcxproj", "{2BAA662E-BD8B-45A5-B465-4498C2FB2775}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Release Retail|Xbox 360 = Release Retail|Xbox 360
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2BAA662E-BD8B-45A5-B465-4498C2FB2775}.Release Retail|Xbox 360.ActiveCfg = Release Retail|Xbox 360
+		{2BAA662E-BD8B-45A5-B465-4498C2FB2775}.Release Retail|Xbox 360.Build.0 = Release Retail|Xbox 360
+		{2BAA662E-BD8B-45A5-B465-4498C2FB2775}.Release Retail|Xbox 360.Deploy.0 = Release Retail|Xbox 360
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {6BB9900D-B1E7-4B45-9E37-44CB2433D662}
+	EndGlobalSection
+EndGlobal
