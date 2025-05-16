@@ -6,11 +6,10 @@ Experimental on-console HID driver focussing on providing third party controller
 - Reading controller input via USB
 - Up to 4 concurrent controllers, in combination with original xbox 360 controllers or without them
 - Controllers are registered inside xam and therefore fully recognized in the entire xbox 360 user interface, ring of light will update accordingly, no original controllers are needed etc
-- The controllers will work in all games that use XamInputGetState
+- The controller works in all tested games
 
 ## Current limitations
 - Controllers currently need to be connected after the driver was loaded, so you may need to reconnect your controllers after a reboot if the console initialised them already
-- Currently the controllers will only work in games and homebrew that use XamInputGetState to get the input data
 - no rumble support
 
 ## Supported controllers
