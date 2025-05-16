@@ -24,6 +24,10 @@ Experimental on-console HID driver focussing on providing third party controller
 4. Open the solution in visual studio 2019 and build
 5. Hopefully enjoy :)
 
+## Showcase
+https://github.com/user-attachments/assets/f090e5f4-538d-457f-8189-2c5b98579984
+
+
 ## Credits
 - EinTim23 -> Reverse engineering the xbox 360s HID and controller implementation and implementing this driver
 - [localcc](https://github.com/localcc/) for providing help about low level USB related questions and beaming the idea of doing this into my head
