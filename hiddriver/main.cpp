@@ -58,10 +58,18 @@ struct usb_endpoint_descriptor {
     uint8_t  bInterval;        // Polling interval for data transfers (in frames or microframes)
 };
 
+enum ControllerType {
+    UNKNOWN_DEVICE = -1,
+    SONY_DUALSENSE,
+    SONY_DUALSHOCK4,
+};
 
-const uint16_t DUALSENSE_VENDOR_ID = 0x054c;
+const uint16_t SONY_VENDOR_ID = 0x054c;
 const uint16_t DUALSENSE_PRODUCT_ID = 0x0CE6;
+const uint16_t DUALSHOCK4_PRODUCT_ID = 0x05c4;
+const uint16_t DUALSHOCK4_PRODUCT_ID2 = 0x09cc;
 
+#pragma pack(push, 1)
 struct Report {
     uint8_t reportId;
 };
@@ -74,24 +82,52 @@ struct ButtonsReport : Report {
     uint8_t rx;
     uint8_t ry;
     uint8_t vendorDefined_ff00_20;
-    uint8_t triangle : 1; // this is byteswapped for ppc
-    uint8_t circle : 1; //
-    uint8_t cross : 1; //
-    uint8_t square : 1; //
-    uint8_t hatSwitch : 4; // byteswap end
-    uint8_t r3 : 1; // byteswap start
-    uint8_t l3 : 1; //
-    uint8_t options : 1; //
-    uint8_t create : 1; //
-    uint8_t r2 : 1; //
-    uint8_t l2 : 1; //
-    uint8_t r1 : 1; //
-    uint8_t l1 : 1; // bytswap end
-    uint8_t pad : 5; // byteswap start
-    uint8_t mute : 1; //
-    uint8_t touchpad : 1; //
-    uint8_t ps : 1; // byteswap end
+    uint8_t triangle : 1; 
+    uint8_t circle : 1; 
+    uint8_t cross : 1; 
+    uint8_t square : 1; 
+    uint8_t hatSwitch : 4; 
+    uint8_t r3 : 1; 
+    uint8_t l3 : 1; 
+    uint8_t options : 1; 
+    uint8_t create : 1; 
+    uint8_t r2 : 1; 
+    uint8_t l2 : 1; 
+    uint8_t r1 : 1; 
+    uint8_t l1 : 1; 
+    uint8_t pad : 5; 
+    uint8_t mute : 1; 
+    uint8_t touchpad : 1; 
+    uint8_t ps : 1; 
 };
+
+struct DS4ButtonsReport : Report {
+    uint8_t x;  
+    uint8_t y;    
+    uint8_t z;  
+    uint8_t rz;  
+    uint8_t triangle : 1;    
+    uint8_t circle : 1;   
+    uint8_t cross : 1;    
+    uint8_t square : 1;    
+    uint8_t hat_switch : 4;  
+    uint8_t r3 : 1;   
+    uint8_t l3 : 1;  
+    uint8_t options : 1;    
+    uint8_t share : 1;  
+    uint8_t r2 : 1;   
+    uint8_t l2 : 1;  
+    uint8_t r1 : 1;    
+    uint8_t l1 : 1;   
+    uint8_t : 6;          
+    uint8_t touchpad : 1;   
+    uint8_t ps : 1;    
+    uint8_t rx;              
+    uint8_t ry;           
+    uint8_t vendor_defined; 
+};
+#pragma pack(pop)
+
 
 struct deviceHandle;
 struct __declspec(align(2)) HidControllerExtension
@@ -140,6 +176,7 @@ struct deviceHandle // sizeof=0x4
 {
     HidControllerExtension* driver;
 };
+
 #define USB_ENDPOINT_TYPE_CONTROL         0x00
 #define USB_ENDPOINT_TYPE_ISOCHRONOUS     0x01
 #define USB_ENDPOINT_TYPE_BULK            0x02
@@ -161,7 +198,6 @@ typedef NTSTATUS(*usb_open_endpoint_func_t)(deviceHandle* handle, int transferty
 typedef usb_endpoint_descriptor* (*usb_endpoint_descriptor_func_t)(deviceHandle* handle, int index, int transfertype, int direction);
 typedef int (*xam_user_bind_device_callback_func_t)(unsigned int controllerId, unsigned int context, unsigned __int8 category, bool disconnect, unsigned __int8* userIndex);
 
-
 usb_device_descriptor_func_t UsbdGetDeviceDescriptor = nullptr;
 usb_interface_descriptor_func_t UsbdGetInterfaceDescriptor = nullptr;
 usb_endpoint_descriptor_func_t UsbdGetEndpointDescriptor = nullptr;
@@ -180,6 +216,7 @@ struct Controller {
     HidControllerExtension* controllerDriver;
     ButtonsReport currentState;
     uint8_t userIndex;
+    ControllerType controllerType;
     void* reportData;
 } __declspec(align(4));
 
@@ -190,16 +227,49 @@ int interruptHandler(DWORD deviceHandle, int32_t a2) {
     Report* report = (Report*)driverExtension->interruptData;
     if (!driverExtension || !driverExtension->deviceHandle || !driverExtension->deviceHandle->driver || driverExtension->deviceHandle->driver->cleanedUpDone)
         return 0;
+    int index = -1;
+
+    for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
+        if (connectedControllers[i].controllerDriver == driverExtension) {
+            index = i;
+            break;
+        }
+    }
 
     if (report->reportId == 1) {
-        ButtonsReport* buttonReport = (ButtonsReport*)report;
+        ButtonsReport buttonReport = ButtonsReport();
         
-        for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
-            if (connectedControllers[i].controllerDriver == driverExtension) {
-                connectedControllers[i].currentState = *buttonReport;
-                break;
-            }
+        switch (connectedControllers[index].controllerType) {
+        case SONY_DUALSENSE:
+            buttonReport = *(ButtonsReport*)report;
+            break;
+        case SONY_DUALSHOCK4:
+            DS4ButtonsReport* br = (DS4ButtonsReport*)report;
+            buttonReport.circle = br->circle;
+            buttonReport.create = br->share;
+            buttonReport.cross = br->cross;
+            buttonReport.hatSwitch = br->hat_switch;
+            buttonReport.l1 = br->l1;
+            buttonReport.l2 = br->l2;
+            buttonReport.l3 = br->l3;
+            buttonReport.options = br->options;
+            buttonReport.ps = br->ps;
+            buttonReport.r1 = br->r1;
+            buttonReport.r2 = br->r2;
+            buttonReport.r3 = br->r3;
+            buttonReport.rx = br->rx;
+            buttonReport.ry = br->ry;
+            buttonReport.rz = br->rz;
+            buttonReport.square = br->square;
+            buttonReport.touchpad = br->touchpad;
+            buttonReport.triangle = br->triangle;
+            buttonReport.x = br->x;
+            buttonReport.y = br->y;
+            buttonReport.z = br->z;
+            break;
         }
+
+        connectedControllers[index].currentState = buttonReport;
     }
 
     return UsbdQueueAsyncTransfer(driverExtension->deviceHandle, &driverExtension->interruptEndpoint);
@@ -261,8 +331,17 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
     DbgPrint("EINTIM: USB endpoint interrupt in descriptor Pointer: %p\n", endpoint_descriptor);
     DbgPrint("EINTIM: HID device vendor id: %x, product id: %x\n", vendorId, productId);
 
-    if (vendorId == DUALSENSE_VENDOR_ID && productId == DUALSENSE_PRODUCT_ID) {
-        DbgPrint("EINTIM: DualSense PS5 controller detected. Initialising custom handler.\n");
+    ControllerType controllerType = UNKNOWN_DEVICE;
+
+    if (vendorId == SONY_VENDOR_ID) {
+        if (productId == DUALSENSE_PRODUCT_ID)
+            controllerType = SONY_DUALSENSE;
+        if (productId == DUALSHOCK4_PRODUCT_ID || productId == DUALSHOCK4_PRODUCT_ID2)
+            controllerType = SONY_DUALSHOCK4;
+    }
+
+    if (controllerType != UNKNOWN_DEVICE) {
+        DbgPrint("EINTIM: Controller detected. Initialising custom handler.\n");
         int index = -1;
         for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
             if (!connectedControllers[i].controllerDriver) {
@@ -278,6 +357,7 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
         }
        
         Controller c = Controller();
+        c.controllerType = controllerType;
         HidControllerExtension* controllerDriver = new HidControllerExtension();
         c.deviceHandle = deviceHandle;
 
@@ -399,7 +479,7 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
         if (b.options)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_START;
 
-        if (b.mute)
+        if (b.create)
             input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_BACK;
 
         if (b.r3)
