@@ -9,7 +9,6 @@ Experimental on-console HID driver focussing on providing third party controller
 - The controller works in all tested games
 
 ## Current limitations
-- Controllers currently need to be connected after the driver was loaded, so you may need to reconnect your controllers after a reboot if the console initialised them already
 - no rumble support
 
 ## Supported controllers

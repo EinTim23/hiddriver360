@@ -17,6 +17,14 @@ uint16_t swap_endianness_16(uint16_t val) {
     return (val >> 8) | (val << 8);
 }
 
+BOOL IsTrayOpen() {
+    BYTE Input[0x10] = { 0 }, Output[0x10] = { 0 };
+    Input[0] = 0xA;
+    HalSendSMCMessage(Input, Output);
+    return (Output[1] == 0x60);
+}
+
+
 struct usb_device_descriptor {
     uint8_t  bLength;             // Size of this descriptor in bytes (18)
     uint8_t  bDescriptorType;     // DEVICE descriptor type (1)
@@ -178,6 +186,18 @@ struct deviceHandle // sizeof=0x4
     HidControllerExtension* driver;
 };
 
+typedef struct _XINPUT_CAPABILITIESEX
+{
+    BYTE                                Type;
+    BYTE                                SubType;
+    WORD                                Flags;
+    XINPUT_GAMEPAD                      Gamepad;
+    XINPUT_VIBRATION                    Vibration;
+    DWORD unk1;
+    DWORD unk2;
+    DWORD unk3;
+} XINPUT_CAPABILITIES_EX, * PXINPUT_CAPABILITIES_EX;
+
 #define USB_ENDPOINT_TYPE_CONTROL         0x00
 #define USB_ENDPOINT_TYPE_ISOCHRONOUS     0x01
 #define USB_ENDPOINT_TYPE_BULK            0x02
@@ -198,6 +218,8 @@ typedef NTSTATUS (*usb_open_default_endpoint_func_t)(deviceHandle* handle, DWORD
 typedef NTSTATUS(*usb_open_endpoint_func_t)(deviceHandle* handle, int transfertype, int endpointAddress, int maxPacketLength, int interval, DWORD* endpoint);
 typedef usb_endpoint_descriptor* (*usb_endpoint_descriptor_func_t)(deviceHandle* handle, int index, int transfertype, int direction);
 typedef int (*xam_user_bind_device_callback_func_t)(unsigned int controllerId, unsigned int context, unsigned __int8 category, bool disconnect, unsigned __int8* userIndex);
+typedef int(*usbd_powerdown_notification_func_t)();
+typedef void(*mm_free_physical_memory_func_t)(DWORD type, DWORD address);
 
 usb_device_descriptor_func_t UsbdGetDeviceDescriptor = nullptr;
 usb_interface_descriptor_func_t UsbdGetInterfaceDescriptor = nullptr;
@@ -211,6 +233,9 @@ usb_queue_close_endpoint_func_t UsbdQueueCloseEndpoint = nullptr;
 usb_close_default_endpoint_func_t UsbdQueueCloseDefaultEndpoint = nullptr;
 usb_remove_device_complete_func_t UsbdRemoveDeviceComplete = nullptr;
 xam_user_bind_device_callback_func_t XamUserBindDeviceCallback = nullptr;
+usbd_powerdown_notification_func_t UsbdPowerDownNotification = nullptr;
+usbd_powerdown_notification_func_t UsbdDriverEntry = nullptr;
+mm_free_physical_memory_func_t MmFreePhysicalMemory = nullptr;
 
 struct Controller {
     deviceHandle* deviceHandle;
@@ -524,18 +549,6 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
     return status;
 }
 
-typedef struct _XINPUT_CAPABILITIESEX
-{
-    BYTE                                Type;
-    BYTE                                SubType;
-    WORD                                Flags;
-    XINPUT_GAMEPAD                      Gamepad;
-    XINPUT_VIBRATION                    Vibration;
-    DWORD unk1;
-    DWORD unk2;
-    DWORD unk3;
-} XINPUT_CAPABILITIES_EX, * PXINPUT_CAPABILITIES_EX;
-
 DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_CAPABILITIES_EX* capabilities) {
     DWORD status = XamInputGetCapabilitiesDetour.GetOriginal<decltype(&XamInputGetCapabilitiesExHook)>()(unk, user, flags, capabilities);
 
@@ -576,7 +589,7 @@ DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_C
 void* XamInputGetState = nullptr;
 void* XamInputGetCapabilitiesEx = nullptr;
 bool isDevkit = true;
-
+DWORD UsbPhysicalPage = 0;
 bool initFunctionPointers() {
     isDevkit = *(uint32_t*)(0x8010D334) == 0x00000000;
     HANDLE kernelHandle = GetModuleHandleA("xboxkrnl.exe"); 
@@ -598,6 +611,8 @@ bool initFunctionPointers() {
     XexGetProcedureAddress(kernelHandle, 750, &UsbdQueueCloseEndpoint);
     XexGetProcedureAddress(kernelHandle, 749, &UsbdQueueCloseDefaultEndpoint);
     XexGetProcedureAddress(kernelHandle, 751, &UsbdRemoveDeviceComplete);
+    XexGetProcedureAddress(kernelHandle, 189, &MmFreePhysicalMemory);
+
 
     XexGetProcedureAddress(xamHandle, 685, &XamInputGetCapabilitiesEx);
     XexGetProcedureAddress(xamHandle, 401, &XamInputGetState);
@@ -606,11 +621,25 @@ bool initFunctionPointers() {
         DbgPrint("EINTIM: Running in devkit mode\n");
         UsbdGetInterfaceDescriptor = (usb_interface_descriptor_func_t)0x8010D2D0; // 89 43 ? ? 3D 60 ? ? 89 2D ? ? 39 6B ? ? 55 4A FF 3A 2B 09 ? ? 7D 6A 58 2E ? ? ? ? ? ? ? ? 89 4D ? ? 2B 0A ? ? ? ? ? ? ? ? ? ? 81 4B ? ? 7F 03 50 40 ? ? ? ? ? ? ? ? A1 4B very bad direct signature. XREF sig: 89 63 ? ? 38 A1
         XamUserBindDeviceCallback = (xam_user_bind_device_callback_func_t)0x817A34B8; // 7C 8B 23 78 7C A4 2B 78 54 CA 06 3F
+        UsbdPowerDownNotification = (usbd_powerdown_notification_func_t)0x8010E140; // argument to last function call in UsbdDriverEntry
+        UsbdDriverEntry = (usbd_powerdown_notification_func_t)0x8010DE48; // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 3C 80 ? ? 38 A0 
+
+        //Remove two usb related bugchecks to allow reinitialisation of the usb driver
+        *(DWORD*)0x80116298 = 0x48000018;
+        *(DWORD*)0x801132A4 = 0x48000018;
+        UsbPhysicalPage = 0x8020A9B8;
     }
     else {
         DbgPrint("EINTIM: Running in retail mode\n");
         UsbdGetInterfaceDescriptor = (usb_interface_descriptor_func_t)0x800D8500; // 89 43 ? ? 3D 60 ? ? 39 6B ? ? 55 4A FF 3A 7D 6A 58 2E A1 4B
         XamUserBindDeviceCallback = (xam_user_bind_device_callback_func_t)0x816D9060; // 7C 8B 23 78 7C A4 2B 78 54 CA 06 3F
+        UsbdPowerDownNotification = (usbd_powerdown_notification_func_t)0x800D8FC8; // argument to last function call in UsbdDriverEntry
+        UsbdDriverEntry = (usbd_powerdown_notification_func_t)0x800D8D08; // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 3C 80 ? ? 38 A0 
+
+        //Remove two usb related bugchecks to allow reinitialisation of the usb driver
+        *(DWORD*)0x800E05E4 = 0x48000018;
+        *(DWORD*)0x800DD8E0 = 0x48000018;
+        UsbPhysicalPage = 0x801A8098;
     }
 
     return true;
@@ -620,8 +649,8 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved)
 {
 	if (Reason == DLL_PROCESS_ATTACH)
 	{
-        if (XboxKrnlVersion->Build != 17559 && XboxKrnlVersion->Build != 17489) {
-            DbgPrint("EINTIM: Only 17559 and 17489 dashboards are currently supported.\n");
+        if ((XboxKrnlVersion->Build != 17559 && XboxKrnlVersion->Build != 17489) || IsTrayOpen()) {
+            DbgPrint("EINTIM: Only 17559 and 17489 dashboards are currently supported or the disk tray is open. Aborting launch...\n");
             return FALSE;
         }
 
@@ -646,6 +675,14 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved)
 
         XamInputGetStateDetour.Install();
         XamInputGetCapabilitiesDetour.Install();
+        DbgPrint("EINTIM: Resetting USB driver!\n");
+        
+        UsbdPowerDownNotification();
+        //For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them :)
+        MmFreePhysicalMemory(0, *(DWORD*)UsbPhysicalPage);
+        DbgPrint("EINTIM: USB driver shutdown complete.\n");
+        UsbdDriverEntry();
+        DbgPrint("EINTIM: USB driver reset complete.\n");
 		DbgPrint("EINTIM: Hooks installed\n");
 	}
 	return TRUE;
