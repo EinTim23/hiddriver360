@@ -627,6 +627,18 @@ bool initFunctionPointers() {
         //Remove two usb related bugchecks to allow reinitialisation of the usb driver
         *(DWORD*)0x80116298 = 0x48000018;
         *(DWORD*)0x801132A4 = 0x48000018;
+
+        //DEVKIT only: Remove assertions(Microsoft did not think that we'd come and reset the usb driver, never let them know your next move typa shit)
+        /*  
+        *(DWORD*)0x80096B84 = 0x60000000;
+        *(DWORD*)0x80095F6C = 0x60000000;
+        *(DWORD*)0x80116584 = 0x60000000;
+        *(DWORD*)0x80116598 = 0x60000000;
+        */ 
+
+        // Prevent double registration of Usbd handlers because the console wont shutdown cleanly otherwise
+        *(DWORD*)0x8010E04C = 0x60000000;
+        *(DWORD*)0x8010E05C = 0x60000000;
         UsbPhysicalPage = 0x8020A9B8;
     }
     else {
@@ -639,6 +651,10 @@ bool initFunctionPointers() {
         //Remove two usb related bugchecks to allow reinitialisation of the usb driver
         *(DWORD*)0x800E05E4 = 0x48000018;
         *(DWORD*)0x800DD8E0 = 0x48000018;
+
+        // Prevent double registration of Usbd handlers because the console wont shutdown cleanly otherwise
+        *(DWORD*)0x800D8F00 = 0x60000000;
+        *(DWORD*)0x800D8EF0 = 0x60000000;
         UsbPhysicalPage = 0x801A8098;
     }
 
@@ -676,9 +692,8 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved)
         XamInputGetStateDetour.Install();
         XamInputGetCapabilitiesDetour.Install();
         DbgPrint("EINTIM: Resetting USB driver!\n");
-        
         UsbdPowerDownNotification();
-        //For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them :)
+        //For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
         MmFreePhysicalMemory(0, *(DWORD*)UsbPhysicalPage);
         DbgPrint("EINTIM: USB driver shutdown complete.\n");
         UsbdDriverEntry();
