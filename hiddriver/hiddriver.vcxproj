@@ -68,7 +68,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <SetChecksum>true</SetChecksum>
-      <AdditionalOptions>/dll /align:128,4096 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/dll %(AdditionalOptions)</AdditionalOptions>
       <ProgramDatabaseFile>$(ProjectDir)$(Configuration)hiddriver.pdb</ProgramDatabaseFile>
       <EntryPointSymbol>
       </EntryPointSymbol>

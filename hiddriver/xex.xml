@@ -7,6 +7,6 @@
     <flash/>
   </mediatypes>
   <version major="2" minor="0" build="0x4497" qfe="0"/>
-  <baseaddr addr="0x90B00000"/>
+  <baseaddr addr="0x81F00000"/>
   <sysdll/>
 </xex>
