@@ -12,6 +12,7 @@ Detour HidAddDeviceDetour;
 Detour HidRemoveDeviceDetour;
 Detour XamInputGetStateDetour;
 Detour XamInputGetCapabilitiesDetour;
+Detour XamInactivityDetectRecentActivityDetour;
 
 uint16_t swap_endianness_16(uint16_t val) {
 	return (val >> 8) | (val << 8);
@@ -596,6 +597,19 @@ DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_C
 	}
 }
 
+// fix for inactivity (screen dimming)
+int XamInactivityDetectRecentActivityHook(DWORD r3) {
+	// check if a controller is connected
+	for (int i = 0; i < 4; i++) {
+		if (connectedControllers[i].controllerDriver != (HidControllerExtension*)0) {
+			// return active
+			return 1;
+		}
+	}
+
+	return XamInactivityDetectRecentActivityDetour.GetOriginal<decltype(&XamInactivityDetectRecentActivityHook)>()(r3);
+}
+
 void* XamInputGetState = nullptr;
 void* XamInputGetCapabilitiesEx = nullptr;
 bool isDevkit = true;
@@ -633,7 +647,7 @@ bool initFunctionPointers() {
 		XamUserBindDeviceCallback = (xam_user_bind_device_callback_func_t)0x817A34B8; // 7C 8B 23 78 7C A4 2B 78 54 CA 06 3F
 		UsbdPowerDownNotification = (usbd_powerdown_notification_func_t)0x8010E140; // argument to last function call in UsbdDriverEntry
 		UsbdDriverEntry = (usbd_powerdown_notification_func_t)0x8010DE48; // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 3C 80 ? ? 38 A0 
-
+		 
 		//Remove two usb related bugchecks to allow reinitialisation of the usb driver
 		*(DWORD*)0x80116298 = 0x48000018;
 		*(DWORD*)0x801132A4 = 0x48000018;
@@ -661,7 +675,7 @@ bool initFunctionPointers() {
 		XamUserBindDeviceCallback = (xam_user_bind_device_callback_func_t)0x816D9060; // 7C 8B 23 78 7C A4 2B 78 54 CA 06 3F
 		UsbdPowerDownNotification = (usbd_powerdown_notification_func_t)0x800D8FC8; // argument to last function call in UsbdDriverEntry
 		UsbdDriverEntry = (usbd_powerdown_notification_func_t)0x800D8D08; // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 3C 80 ? ? 38 A0 
-
+		
 		XampInputRoutedToSysapp = (DWORD*)0x81AAC2A0;
 
 		//Remove two usb related bugchecks to allow reinitialisation of the usb driver
@@ -693,10 +707,12 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved)
 		if (isDevkit) {
 			HidAddDeviceDetour = Detour((void*)0x8011AE38, (void*)HidAddDeviceHook); // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 7C 7C 1B 78 ? ? ? ? 7C 7F 1B 79
 			HidRemoveDeviceDetour = Detour((void*)0x8011ADF8, (void*)HidRemoveDeviceHook); // 81 63 ? ? 39 40 ? ? 39 20 ? ? 99 4B
+			XamInactivityDetectRecentActivityDetour = Detour((void*)0x81750588, (void*)XamInactivityDetectRecentActivityHook); // 3D 60 81 ?? 3D 40 81 ?? E8 6B ?? ?? E9 6A ?? ?? 7F 23 58 40 40 98 00 0C
 		}
 		else {
 			HidAddDeviceDetour = Detour((void*)0x800E4D68, (void*)HidAddDeviceHook); // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 7C 7B 1B 78 ? ? ? ? 7C 7F 1B 79
 			HidRemoveDeviceDetour = Detour((void*)0x800E4D28, (void*)HidRemoveDeviceHook); // 81 63 ? ? 39 40 ? ? 39 20 ? ? 99 4B
+			XamInactivityDetectRecentActivityDetour = Detour((void*)0x81695DE8, (void*)XamInactivityDetectRecentActivityHook); // 3D 60 81 ?? 3D 40 81 ?? E8 6B ?? ?? E9 6A ?? ?? 7F 23 58 40 40 98 00 0C
 		}
 
 		HidAddDeviceDetour.Install();
@@ -707,6 +723,8 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved)
 
 		XamInputGetStateDetour.Install();
 		XamInputGetCapabilitiesDetour.Install();
+		XamInactivityDetectRecentActivityDetour.Install();
+
 		DbgPrint("EINTIM: Resetting USB driver!\n");
 		UsbdPowerDownNotification();
 		//For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
