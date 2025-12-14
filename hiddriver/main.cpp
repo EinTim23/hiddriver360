@@ -11,6 +11,7 @@
 Detour HidAddDeviceDetour;
 Detour HidRemoveDeviceDetour;
 Detour XamInputGetStateDetour;
+Detour XamInputSetStateDetour;
 Detour XamInputGetCapabilitiesDetour;
 Detour XamInactivityDetectRecentActivityDetour;
 
@@ -560,6 +561,33 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
 	return status;
 }
 
+DWORD XamInputSetStateHook(DWORD user, DWORD flags, XINPUT_STATE* pInputState, BYTE bAmplitude, BYTE bFrequency, BYTE bOffset) {
+	DWORD status = XamInputSetStateDetour.GetOriginal<decltype(&XamInputSetStateHook)>()(user, flags, pInputState, bAmplitude, bFrequency, bOffset);
+
+	if ((user & 0xFF) == 0xFF)
+		user = 0;
+
+
+	if (status == ERROR_DEVICE_NOT_CONNECTED) {
+		Controller* c = nullptr;
+		for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
+			if (connectedControllers[i].controllerDriver) {
+				if (connectedControllers[i].userIndex == user) {
+					c = &connectedControllers[i];
+					break;
+				}
+			}
+		}
+
+		if (!c)
+			return status;
+
+		return ERROR_SUCCESS;
+	}
+
+	return status;
+}
+
 DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_CAPABILITIES_EX* capabilities) {
 	DWORD status = XamInputGetCapabilitiesDetour.GetOriginal<decltype(&XamInputGetCapabilitiesExHook)>()(unk, user, flags, capabilities);
 
@@ -611,6 +639,7 @@ int XamInactivityDetectRecentActivityHook(DWORD r3) {
 }
 
 void* XamInputGetState = nullptr;
+void* XamInputSetState = nullptr;
 void* XamInputGetCapabilitiesEx = nullptr;
 bool isDevkit = true;
 DWORD UsbPhysicalPage = 0;
@@ -640,6 +669,7 @@ bool initFunctionPointers() {
 
 	XexGetProcedureAddress(xamHandle, 685, &XamInputGetCapabilitiesEx);
 	XexGetProcedureAddress(xamHandle, 401, &XamInputGetState);
+	XexGetProcedureAddress(xamHandle, 402, &XamInputSetState);
 
 	if (isDevkit) {
 		DbgPrint("EINTIM: Running in devkit mode\n");
@@ -720,8 +750,10 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved)
 
 		XamInputGetCapabilitiesDetour = Detour(XamInputGetCapabilitiesEx, (void*)XamInputGetCapabilitiesExHook);
 		XamInputGetStateDetour = Detour(XamInputGetState, (void*)XamInputGetStateHook);
+		XamInputSetStateDetour = Detour(XamInputSetState, (void*)XamInputSetStateHook);
 
 		XamInputGetStateDetour.Install();
+		XamInputSetStateDetour.Install();
 		XamInputGetCapabilitiesDetour.Install();
 		XamInactivityDetectRecentActivityDetour.Install();
 
