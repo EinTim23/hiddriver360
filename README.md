@@ -12,8 +12,9 @@ Experimental on-console HID driver focussing on providing third party controller
 - no rumble support
 
 ## Supported controllers
-- Dualsense (PS5 controller)
 - DualShock 4 (PS4 controller)
+- DualSense (PS5 controller)
+- DualSense Edge
 - more to come, as its quite easy to extend
 
 ## How to build
