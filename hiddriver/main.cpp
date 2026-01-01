@@ -71,14 +71,15 @@ struct usb_endpoint_descriptor {
 
 enum ControllerType {
 	UNKNOWN_DEVICE = -1,
-	SONY_DUALSENSE,
 	SONY_DUALSHOCK4,
+	SONY_DUALSENSE,
 };
 
-const uint16_t SONY_VENDOR_ID = 0x054c;
+const uint16_t SONY_VENDOR_ID = 0x054C;
+const uint16_t DUALSHOCK4_V1_PRODUCT_ID = 0x05C4;
+const uint16_t DUALSHOCK4_V2_PRODUCT_ID = 0x09CC;
 const uint16_t DUALSENSE_PRODUCT_ID = 0x0CE6;
-const uint16_t DUALSHOCK4_PRODUCT_ID = 0x05c4;
-const uint16_t DUALSHOCK4_PRODUCT_ID2 = 0x09cc;
+const uint16_t DUALSENSE_EDGE_PRODUCT_ID = 0x0DF2;
 
 #pragma pack(push, 1)
 struct Report {
@@ -365,9 +366,9 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 	ControllerType controllerType = UNKNOWN_DEVICE;
 
 	if (vendorId == SONY_VENDOR_ID) {
-		if (productId == DUALSENSE_PRODUCT_ID)
+		if (productId == DUALSENSE_PRODUCT_ID || productId == DUALSENSE_EDGE_PRODUCT_ID)
 			controllerType = SONY_DUALSENSE;
-		if (productId == DUALSHOCK4_PRODUCT_ID || productId == DUALSHOCK4_PRODUCT_ID2)
+		if (productId == DUALSHOCK4_V1_PRODUCT_ID || productId == DUALSHOCK4_V2_PRODUCT_ID)
 			controllerType = SONY_DUALSHOCK4;
 	}
 
