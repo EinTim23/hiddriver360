@@ -13,6 +13,7 @@ Experimental on-console HID driver focussing on providing third party controller
 
 ## Supported controllers
 - DualShock 4 (PS4 controller)
+- DualShock 4 Wireless Adapter (CUH-ZWA1E)
 - DualSense (PS5 controller)
 - DualSense Edge
 - more to come, as its quite easy to extend
@@ -31,6 +32,3 @@ https://github.com/user-attachments/assets/f090e5f4-538d-457f-8189-2c5b98579984
 ## Credits
 - EinTim23 -> Reverse engineering the xbox 360s HID and controller implementation and implementing this driver
 - [localcc](https://github.com/localcc/) for providing help about low level USB related questions and beaming the idea of doing this into my head
-
-
-
