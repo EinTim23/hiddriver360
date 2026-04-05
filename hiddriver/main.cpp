@@ -69,6 +69,19 @@ struct usb_endpoint_descriptor {
 	uint8_t  bInterval;        // Polling interval for data transfers (in frames or microframes)
 };
 
+// defined by USB HID spec
+enum HatSwitch {
+	HAT_UP = 0,
+	HAT_UP_RIGHT = 1,
+	HAT_RIGHT = 2,
+	HAT_DOWN_RIGHT = 3,
+	HAT_DOWN = 4,
+	HAT_DOWN_LEFT = 5,
+	HAT_LEFT = 6,
+	HAT_UP_LEFT = 7,
+	HAT_NEUTRAL = 8
+};
+
 enum ControllerType {
 	UNKNOWN_DEVICE = -1,
 	SONY_DUALSHOCK4,
@@ -536,17 +549,39 @@ DWORD XamInputGetStateHook(DWORD user, DWORD flags, XINPUT_STATE* input_state) {
 		if (b.r1)
 			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
 
-		if (b.hatSwitch == 0)
+
+		switch (b.hatSwitch) {
+		case HatSwitch::HAT_UP:
 			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP;
-
-		if (b.hatSwitch == 2)
+			break;
+		case HatSwitch::HAT_UP_RIGHT:
+			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP;
 			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
-
-		if (b.hatSwitch == 4)
+			break;
+		case HatSwitch::HAT_RIGHT:
+			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
+			break;
+		case HatSwitch::HAT_DOWN_RIGHT:
 			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
-
-		if (b.hatSwitch == 6)
+			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
+			break;
+		case HatSwitch::HAT_DOWN:
+			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
+			break;
+		case HatSwitch::HAT_DOWN_LEFT:
+			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
 			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
+			break;
+		case HatSwitch::HAT_LEFT:
+			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
+			break;
+		case HatSwitch::HAT_UP_LEFT:
+			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP;
+			input_state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
+			break;
+		case HatSwitch::HAT_NEUTRAL: // Do nothing
+			break;
+		}
 
 		input_state->Gamepad.sThumbRX = ConvertToFullRange(b.z);
 		input_state->Gamepad.sThumbRY = ConvertToFullRange(b.rz, true);
@@ -732,7 +767,7 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved)
 			return FALSE;
 		}
 
-		DbgPrint("EINTIM: HELLO from xbox 360 HID controller driver\n");
+		DbgPrint("EINTIM: HELLO from xbox 360 HID controller driver version 0.5\n");
 		if (!initFunctionPointers())
 			return FALSE;
 
