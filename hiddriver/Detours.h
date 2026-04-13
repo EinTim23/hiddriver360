@@ -351,7 +351,9 @@ private:
 	//
 	// Shared
 	//
-	static BYTE   TrampolineBuffer[200 * 20];
+	// The secret to getting the hooks to work inside the OG xbox emulator is by placing the trampolines and all dynamically allocated code inside a section thats trusted by the hypervisor
+	#pragma section(".text", read, execute)
+	__declspec(allocate(".text")) static BYTE TrampolineBuffer[200 * 20];
 	static SIZE_T TrampolineSize;
 };
 
