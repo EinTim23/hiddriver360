@@ -9,6 +9,8 @@
 #include <vector>
 #include "Detours.h"
 #include "hid_parser.h"  
+#include "usb.h"
+#include "mapping.h"
 
 Detour HidAddDeviceDetour;
 Detour HidRemoveDeviceDetour;
@@ -27,125 +29,17 @@ BOOL IsTrayOpen() {
 	return (Output[1] == 0x60);
 }
 
-struct usb_device_descriptor {
-	uint8_t  bLength;             // Size of this descriptor in bytes (18)
-	uint8_t  bDescriptorType;     // DEVICE descriptor type (1)
-	uint16_t bcdUSB;              // USB Specification Release Number (e.g., 0x0200 for USB 2.0)
-	uint8_t  bDeviceClass;        // Class code (assigned by USB-IF)
-	uint8_t  bDeviceSubClass;     // Subclass code
-	uint8_t  bDeviceProtocol;     // Protocol code
-	uint8_t  bMaxPacketSize0;     // Max packet size for endpoint 0 (8, 16, 32, or 64)
-	uint16_t idVendor;            // Vendor ID (assigned by USB-IF)
-	uint16_t idProduct;           // Product ID (assigned by manufacturer)
-	uint16_t bcdDevice;           // Device release number in binary-coded decimal
-	uint8_t  iManufacturer;       // Index of string descriptor describing manufacturer
-	uint8_t  iProduct;            // Index of string descriptor describing product
-	uint8_t  iSerialNumber;       // Index of string descriptor for the device's serial number
-	uint8_t  bNumConfigurations;  // Number of possible configurations
-};
+// This console likes to kill non system threads on title switches
+HANDLE MakeThread(LPTHREAD_START_ROUTINE Address, PVOID arg) {
+	HANDLE Handle = 0;
+	ExCreateThread(&Handle, 0, 0, XapiThreadStartup, Address, arg, (EX_CREATE_FLAG_SUSPENDED | EX_CREATE_FLAG_SYSTEM | 0x18000424));
+	XSetThreadProcessor(Handle, 4);
+	SetThreadPriority(Handle, THREAD_PRIORITY_NORMAL);
+	ResumeThread(Handle);
+	return Handle;
+}
 
-#pragma pack(push, 1)
-struct usb_hid_descriptor {
-	BYTE  bLength;
-	BYTE  bDescriptorType;
-	WORD  bcdHID;
-	BYTE  bCountryCode;
-	BYTE  bNumDescriptors;
-	BYTE  bDescriptorType2;
-	WORD  wDescriptorLength;
-};
-#pragma pack(pop)
-
-struct usb_interface_descriptor {
-	uint8_t bLength;              // Size of this descriptor in bytes (9)
-	uint8_t bDescriptorType;      // INTERFACE descriptor type (4)
-	uint8_t bInterfaceNumber;     // Number of this interface
-	uint8_t bAlternateSetting;    // Value used to select this alternate setting
-	uint8_t bNumEndpoints;        // Number of endpoints used by this interface (excluding EP0)
-	uint8_t bInterfaceClass;      // Class code (assigned by USB-IF)
-	uint8_t bInterfaceSubClass;   // Subclass code
-	uint8_t bInterfaceProtocol;   // Protocol code
-	uint8_t iInterface;           // Index of string descriptor describing this interface
-};
-
-
-struct usb_endpoint_descriptor {
-	uint8_t  bLength;          // Size of this descriptor in bytes (7)
-	uint8_t  bDescriptorType;  // ENDPOINT descriptor type (5)
-	uint8_t  bEndpointAddress; // Endpoint address and direction:
-							   // Bit 7: Direction (0=OUT, 1=IN)
-							   // Bits 3..0: Endpoint number (1–15)
-	uint8_t  bmAttributes;     // Transfer type:
-							   // Bits 1..0: 00=Control, 01=Isochronous, 10=Bulk, 11=Interrupt
-							   // For Isochronous and Interrupt, additional bits define usage
-	uint16_t wMaxPacketSize;   // Maximum packet size this endpoint is capable of sending or receiving
-	uint8_t  bInterval;        // Polling interval for data transfers (in frames or microframes)
-};
-
-
-// defined by USB HID spec
-enum HatSwitch {
-	HAT_UP = 0,
-	HAT_UP_RIGHT = 1,
-	HAT_RIGHT = 2,
-	HAT_DOWN_RIGHT = 3,
-	HAT_DOWN = 4,
-	HAT_DOWN_LEFT = 5,
-	HAT_LEFT = 6,
-	HAT_UP_LEFT = 7,
-	HAT_NEUTRAL = 8
-};
-
-//USB HID Generic Desktop usage page / usages
-#define HID_USAGE_PAGE_GENERIC_DESKTOP  0x01
-#define HID_USAGE_PAGE_BUTTON           0x09
-
-#define HID_USAGE_AXIS_X        0x30
-#define HID_USAGE_AXIS_Y        0x31
-#define HID_USAGE_AXIS_Z        0x32
-#define HID_USAGE_AXIS_RX       0x33
-#define HID_USAGE_AXIS_RY       0x34
-#define HID_USAGE_AXIS_RZ       0x35
-#define HID_USAGE_HAT_SWITCH    0x39
-#define HID_USAGE_GAMEPAD       0x05
-#define HID_USAGE_JOYSTICK      0x04
-
-#pragma pack(push, 1)
-struct Report {
-	uint8_t reportId;
-};
-
-struct ButtonsReport {
-	bool has_hat_switch;
-	int16_t x;
-	int16_t y;
-	int16_t z;
-	int16_t rz;
-	int16_t rx;
-	int16_t ry;
-	uint8_t triangle;
-	uint8_t circle;
-	uint8_t cross;
-	uint8_t square;
-	uint8_t hatSwitch;
-
-	// for controllers without a hat switch
-	uint8_t dpad_left;
-	uint8_t dpad_right;
-	uint8_t dpad_up;
-	uint8_t dpad_down;
-
-	uint8_t r3;
-	uint8_t l3;
-	uint8_t start;
-	uint8_t back;
-	uint8_t r2;
-	uint8_t l2;
-	uint8_t r1;
-	uint8_t l1;
-	uint8_t xbox;
-};
-#pragma pack(pop)
+void XNotifyUI(XNOTIFYQUEUEUI_TYPE Type, PWCHAR String) { XNotifyQueueUI(Type, XUSER_INDEX_ANY, XNOTIFYUI_PRIORITY_HIGH, String, 0); }
 
 struct UsbTrb {
 	DWORD endpoint;
@@ -234,10 +128,9 @@ const uint16_t NINTENDO_VENDOR_ID = 0x057E;
 const uint16_t SWITCH_PRO_PRODUCT_ID = 0x2009;
 
 const unsigned char nintendo_handshake[2] = { 0x80, 0x02 };
-const unsigned char switch_baudrate[2] = { 0x80, 0x03 };
 const unsigned char hid_only_mode[2] = { 0x80, 0x04 };
 
-static bool NeedsNintendoHandshake(uint16_t vid, uint16_t pid) {
+bool NeedsNintendoHandshake(uint16_t vid, uint16_t pid) {
 	if (vid != NINTENDO_VENDOR_ID) return false;
 	return pid == SWITCH_PRO_PRODUCT_ID;
 }
@@ -290,10 +183,24 @@ struct Controller {
 	HID_ReportInfo_t* reportInfo;
 	uint8_t reportId;
 	void* reportData;
+	const HidDeviceMapping* map;
 
 	// for nintendo specific handshake
 	NINTENDO_HANDSHAKE_STATE nintendo_handshake_state;
 	UsbTrb interruptTrb;
+} __declspec(align(4));
+
+struct MappingState {
+	volatile bool active;
+	volatile uint8_t pressedButtonIdx;
+	volatile int16_t axisValues[6];
+	uint8_t reportId;
+	HID_ReportInfo_t* reportInfo;
+	int controllerIndex;
+	uint8_t availableButtons[256];
+	uint8_t availableButtonCount;
+	volatile uint8_t previousPressedButtonIdx;
+	volatile uint32_t holdCount;
 } __declspec(align(4));
 
 Controller connectedControllers[4];
@@ -301,6 +208,8 @@ Controller c;
 usb_hid_descriptor hidDescriptorBuffer;
 int globalIndex = -1;
 void* reportDescriptorBuffer;
+MappingState g_mappingState;
+
 int interruptHandler(DWORD deviceHandle, int32_t a2);
 
 // Keep every IN report item; the driver uses all axes, the hat, and buttons.
@@ -308,14 +217,12 @@ bool CALLBACK_HIDParser_FilterHIDReportItem(HID_ReportItem_t* const CurrentItem)
 	return (CurrentItem->ItemType == HID_REPORT_ITEM_In);
 }
 
-static HID_ReportItem_t* FindItemByUsage(
+HID_ReportItem_t* FindItemByUsage(
 	HID_ReportInfo_t* info,
 	uint16_t usagePage,
 	uint16_t usage,
-	uint8_t  reportId)
-{
-	for (HID_ReportItem_t* item = info->FirstReportItem; item; item = item->Next)
-	{
+	uint8_t  reportId) {
+	for (HID_ReportItem_t* item = info->FirstReportItem; item; item = item->Next) {
 		if (item->ItemType != HID_REPORT_ITEM_In)
 			continue;
 		if (item->Attributes.Usage.Page != usagePage)
@@ -330,19 +237,16 @@ static HID_ReportItem_t* FindItemByUsage(
 	return nullptr;
 }
 
-static HID_ReportItem_t* FindButtonItem(
+HID_ReportItem_t* FindButtonItem(
 	HID_ReportInfo_t* info,
 	uint8_t buttonIdx,
-	uint8_t reportId)
-{
-	// HID button usages are 1-based
+	uint8_t reportId) {
 	return FindItemByUsage(info, HID_USAGE_PAGE_BUTTON, buttonIdx + 1, reportId);
 }
 
 // Find the report ID that carries gamepad information
 // Returns 0 when the device doesn't use report IDs.
-static uint8_t FindGamepadReportId(HID_ReportInfo_t* info)
-{
+uint8_t FindGamepadReportId(HID_ReportInfo_t* info) {
 	if (!info->UsingReportIDs)
 		return 0;
 
@@ -367,8 +271,7 @@ void SendControlRequest(
 	uint16_t wIndex,
 	uint16_t wLength,
 	void* data,
-	DWORD completionCallback)
-{
+	DWORD completionCallback) {
 	controlTrb->packet.bmRequestType = bmRequestType;
 	controlTrb->packet.bRequest = bRequest;
 	controlTrb->packet.wValue = swap_endianness_16(wValue);
@@ -387,8 +290,7 @@ void SendInterruptRequest(
 	UsbTrb* interruptTrb,
 	void* data,
 	uint32_t length,
-	DWORD completionCallback)
-{
+	DWORD completionCallback) {
 	interruptTrb->buffer = data;
 	interruptTrb->length = length;
 	interruptTrb->flags = 1;
@@ -540,25 +442,64 @@ HID_ReportItem_t* FindHatItem(HID_ReportInfo_t* info, uint8_t reportId) {
 	return nullptr;
 }
 
+void DiscoverAvailableButtons(HID_ReportInfo_t* info, uint8_t reportId,
+                              uint8_t* outButtonIndices, uint8_t* outCount) {
+	uint8_t count = 0;
+	for (HID_ReportItem_t* item = info->FirstReportItem; item && count < 256; item = item->Next) {
+		if (item->ItemType != HID_REPORT_ITEM_In)
+			continue;
+		if (item->Attributes.Usage.Page != HID_USAGE_PAGE_BUTTON)
+			continue;
+		if (info->UsingReportIDs && item->ReportID != reportId)
+			continue;
+
+		uint16_t usage = item->Attributes.Usage.Usage;
+		if (usage >= 1 && usage <= 256) {
+			uint8_t buttonIdx = usage - 1;
+			outButtonIndices[count++] = buttonIdx;
+		}
+	}
+	*outCount = count;
+}
+
+void DiscoverAvailableAxes(HID_ReportInfo_t* info, uint8_t reportId,
+                           uint16_t* outAxisUsages, uint8_t* outCount) {
+	uint8_t count = 0;
+	for (HID_ReportItem_t* item = info->FirstReportItem; item && count < 6; item = item->Next) {
+		if (item->ItemType != HID_REPORT_ITEM_In)
+			continue;
+		if (item->Attributes.Usage.Page != HID_USAGE_PAGE_GENERIC_DESKTOP)
+			continue;
+		if (info->UsingReportIDs && item->ReportID != reportId)
+			continue;
+
+		uint16_t usage = item->Attributes.Usage.Usage;
+		if (usage >= HID_USAGE_AXIS_X && usage <= HID_USAGE_AXIS_RZ) {
+			outAxisUsages[count++] = usage;
+		}
+	}
+	*outCount = count;
+}
+
 void HidFillButtonsReport(
 	const uint8_t* payload,
 	HID_ReportInfo_t* info,
 	ButtonsReport* out,
-	uint8_t           reportId)
-{
+	uint8_t reportId,
+	const HidDeviceMapping* map) {
 	// Axes
-	static const struct { uint16_t usage; int16_t ButtonsReport::* field; } kAxisMap[] = {
-		{ HID_USAGE_AXIS_X,  &ButtonsReport::x  },
-		{ HID_USAGE_AXIS_Y,  &ButtonsReport::y  },
-		{ HID_USAGE_AXIS_Z,  &ButtonsReport::z  },
-		{ HID_USAGE_AXIS_RX, &ButtonsReport::rx },
-		{ HID_USAGE_AXIS_RY, &ButtonsReport::ry },
-		{ HID_USAGE_AXIS_RZ, &ButtonsReport::rz },
-	};
+	const auto* axisMap = map->axisMap;
+	uint8_t axisCount = map->axisMapCount;
 
-	for (uint8_t i = 0; i < sizeof(kAxisMap) / sizeof(kAxisMap[0]); i++) {
-		HID_ReportItem_t* item = FindItemByUsage(info, HID_USAGE_PAGE_GENERIC_DESKTOP,
-			kAxisMap[i].usage, reportId);
+	for (uint8_t i = 0; i < axisCount; i++) {
+		const auto& entry = axisMap[i];
+
+		HID_ReportItem_t* item = FindItemByUsage(
+			info,
+			HID_USAGE_PAGE_GENERIC_DESKTOP,
+			entry.usage,
+			reportId
+		);
 
 		if (!item || !USB_GetHIDReportItemInfo(reportId, payload, item))
 			continue;
@@ -566,6 +507,8 @@ void HidFillButtonsReport(
 		int32_t logMin = (int32_t)item->Attributes.Logical.Minimum;
 		int32_t logMax = (int32_t)item->Attributes.Logical.Maximum;
 		int32_t raw = (int32_t)item->Value;
+
+		int32_t result = 0;
 
 		if (logMax > logMin) {
 			if (raw < logMin) raw = logMin;
@@ -575,11 +518,37 @@ void HidFillButtonsReport(
 			int32_t denominator = (logMax - logMin);
 
 			int32_t scaled = (int32_t)((numerator + denominator / 2) / denominator);
-			out->*kAxisMap[i].field = (int16_t)(scaled - 32768);
+			result = scaled - 32768;
 		}
 		else {
-			out->*kAxisMap[i].field = (int16_t)raw;
+			result = raw;
 		}
+
+		// apply inversion
+		switch (entry.usage) {
+		case HID_USAGE_AXIS_X:
+			if (map->invert.invertX) result = -result;
+			break;
+		case HID_USAGE_AXIS_Y:
+			if (map->invert.invertY) result = -result;
+			break;
+		case HID_USAGE_AXIS_Z:
+			if (map->invert.invertZ) result = -result;
+			break;
+		case HID_USAGE_AXIS_RX:
+			if (map->invert.invertRX) result = -result;
+			break;
+		case HID_USAGE_AXIS_RY:
+			if (map->invert.invertRY) result = -result;
+			break;
+		case HID_USAGE_AXIS_RZ:
+			if (map->invert.invertRZ) result = -result;
+			break;
+		}
+
+		if (result > 32767) result = 32767; if (result < -32768) result = -32768;
+
+		out->*entry.field = (int16_t)result;
 	}
 
 	// Hat switch
@@ -592,33 +561,365 @@ void HidFillButtonsReport(
 	}
 
 	// Buttons
-	static const struct { uint8_t idx; uint8_t ButtonsReport::* field; } kButtonMap[] = {
-		{ 0,  &ButtonsReport::cross    },
-		{ 1,  &ButtonsReport::circle   },
-		{ 2,  &ButtonsReport::square   },
-		{ 3,  &ButtonsReport::triangle },
-		{ 4,  &ButtonsReport::l1       },
-		{ 5,  &ButtonsReport::r1       },
-		{ 6,  &ButtonsReport::l2       },
-		{ 7,  &ButtonsReport::r2       },
-		{ 8,  &ButtonsReport::back     },
-		{ 9,  &ButtonsReport::start    },
-		{ 10, &ButtonsReport::l3       },
-		{ 11, &ButtonsReport::r3       },
-		{ 12, &ButtonsReport::xbox     },
-	};
+	const auto* buttonMap = map->buttonMap;
 
-	for (uint8_t i = 0; i < sizeof(kButtonMap) / sizeof(kButtonMap[0]); i++) {
-		HID_ReportItem_t* item = FindButtonItem(info, kButtonMap[i].idx, reportId);
-		if (item && USB_GetHIDReportItemInfo(reportId, payload, item))
-			out->*kButtonMap[i].field = (uint8_t)item->Value;
+	for (uint8_t i = 0; i < map->buttonMapCount; i++) {
+		const auto& entry = buttonMap[i];
+
+		HID_ReportItem_t* item = FindButtonItem(info, entry.idx, reportId);
+		if (item && USB_GetHIDReportItemInfo(reportId, payload, item)) {
+			out->*entry.field = (uint8_t)item->Value;
+		}
 	}
 }
 
 int32_t noopCompleteHandler(DWORD deviceHandle, int32_t status) {
 	return 0;
 }
+unsigned int __stdcall MappingThreadProc(void* param);
+unsigned int __stdcall MappingManagerThreadProc(void* param){
+	// This thread monitors for controllers needing mapping and spawns mapping threads
+	while (true) {
+		for (int i = 0; i < 4; i++) {
+			// Check if controller exists, has reportInfo, but no mapping, and mapping not already in progress
+			if (connectedControllers[i].controllerDriver &&
+				connectedControllers[i].reportInfo &&
+				!connectedControllers[i].map &&
+				!g_mappingState.active) {
 
+				DbgPrint("EINTIM: Starting mapping for controller %d (VID:%04x PID:%04x)\n",
+					i, connectedControllers[i].vendorId, connectedControllers[i].productId);
+
+				// Initialize mapping state
+				memset(&g_mappingState, 0, sizeof(MappingState));
+				g_mappingState.active = true;
+				g_mappingState.reportId = connectedControllers[i].reportId;
+				g_mappingState.reportInfo = connectedControllers[i].reportInfo;
+				g_mappingState.controllerIndex = i;
+				g_mappingState.pressedButtonIdx = 0xFF;
+
+				HANDLE mappingThread = MakeThread((LPTHREAD_START_ROUTINE)MappingThreadProc, &connectedControllers[i]);
+				if (mappingThread) {
+					CloseHandle(mappingThread);
+				} else {
+					DbgPrint("EINTIM: Failed to create mapping thread!\n");
+					g_mappingState.active = false;
+				}
+			}
+		}
+		Sleep(100); 
+	}
+	return 0;
+}
+
+unsigned int __stdcall MappingThreadProc(void* param) {
+	XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Unknown controller connected. Starting mapping process...");
+	Controller* controller = (Controller*)param;
+	HID_ReportInfo_t* info = controller->reportInfo;
+	uint8_t reportId = controller->reportId;
+	int controllerIndex = -1;
+
+	for (int i = 0; i < 4; i++) {
+		if (&connectedControllers[i] == controller) {
+			controllerIndex = i;
+			break;
+		}
+	}
+
+	if (controllerIndex == -1)
+		return -1;
+
+	// Discover available buttons and axes
+	uint8_t availableButtons[256] = {};
+	uint8_t buttonCount = 0;
+	DiscoverAvailableButtons(info, reportId, availableButtons, &buttonCount);
+
+	uint16_t availableAxes[6] = {};
+	uint8_t axisCount = 0;
+	DiscoverAvailableAxes(info, reportId, availableAxes, &axisCount);
+
+	// Store discovered buttons in mapping state
+	g_mappingState.availableButtonCount = buttonCount;
+	for (uint8_t i = 0; i < buttonCount; i++) {
+		g_mappingState.availableButtons[i] = availableButtons[i];
+	}
+
+	std::vector<HidButtonMapEntry> mappedButtons;
+	std::vector<HidAxisMapEntry> mappedAxes;
+	HidAxisInvertFlags inverts = {0};
+
+	// Invert vertical axes by default
+	inverts.invertY = true;   // Left stick vertical
+	inverts.invertRY = true;  // Right stick vertical
+
+	// Check for hat switch and analog triggers
+	bool hasHatSwitch = FindHatItem(info, reportId) != nullptr;
+
+	// If there are more than 4 axes (4 for dual analog sticks), the extra ones are analog triggers
+	bool hasAnalogTriggers = axisCount > 4;
+
+	// Map buttons in predefined Xbox order
+	const struct {
+		uint8_t field_idx;
+		const char* xbox_name;
+		uint8_t ButtonsReport::* field;
+	} xbox_buttons[] = {
+		{0, "A", &ButtonsReport::a_button},
+		{1, "B", &ButtonsReport::b_button},
+		{2, "X", &ButtonsReport::x_button},
+		{3, "Y", &ButtonsReport::y_button},
+		{4, "LB", &ButtonsReport::l1},
+		{5, "RB", &ButtonsReport::r1},
+		{6, "Back", &ButtonsReport::back},
+		{7, "Start", &ButtonsReport::start},
+		{8, "Left Stick Click", &ButtonsReport::l3},
+		{9, "Right Stick Click", &ButtonsReport::r3},
+		{10, "Xbox", &ButtonsReport::xbox},
+		{11, "LT", &ButtonsReport::l2},
+		{12, "RT", &ButtonsReport::r2},
+	};
+
+	// Skip L2/R2 if we have analog triggers
+	uint8_t buttonEndIdx = sizeof(xbox_buttons) / sizeof(xbox_buttons[0]);
+	if (hasAnalogTriggers) {
+		buttonEndIdx-=2;  // Only map up to RB, skip LT and RT
+	}
+
+	for (size_t i = 0; i < buttonEndIdx; i++) {
+		if (!g_mappingState.active)
+			break;
+
+		wchar_t msg[256];
+		swprintf(msg, 256, L"Press %hs on controller (hold 3s to skip)", xbox_buttons[i].xbox_name);
+		XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, msg);
+
+		uint8_t previousButtonIdx = 0xFF;
+		uint8_t foundButtonIdx = 0xFF;
+		uint32_t pressWaitCount = 0;
+		bool skipped = false;
+
+		while (g_mappingState.active && foundButtonIdx == 0xFF && !skipped) {
+			uint8_t currentButtonIdx = g_mappingState.pressedButtonIdx;
+
+			if (previousButtonIdx == 0xFF && currentButtonIdx != 0xFF) {
+				// Button just pressed
+				pressWaitCount = 0;
+				g_mappingState.holdCount = 0;
+			} else if (previousButtonIdx != 0xFF && currentButtonIdx == 0xFF) {
+				// Button just released
+				if (pressWaitCount > 0) {
+					foundButtonIdx = previousButtonIdx;
+				}
+				pressWaitCount = 0;
+				g_mappingState.holdCount = 0;
+			} else if (currentButtonIdx != 0xFF) {
+				pressWaitCount++;
+				g_mappingState.holdCount++;
+				// 3 second hold = 60 iterations at 50ms each
+				if (g_mappingState.holdCount >= 60) {
+					skipped = true;
+					XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Mapping skipped");
+					// Wait for button release
+					while (g_mappingState.active && g_mappingState.pressedButtonIdx != 0xFF) {
+						Sleep(50);
+					}
+				}
+			}
+
+			previousButtonIdx = currentButtonIdx;
+			Sleep(50);
+		}
+
+		if (foundButtonIdx != 0xFF) {
+			HidButtonMapEntry entry = {foundButtonIdx, xbox_buttons[i].field};
+			mappedButtons.push_back(entry);
+		}
+	}
+
+	// Map D-Pad buttons if no hat switch
+	if (!hasHatSwitch && g_mappingState.active) {
+		const struct {
+			const char* dpad_name;
+			uint8_t ButtonsReport::* field;
+		} dpad_buttons[] = {
+			{"D-Pad Left", &ButtonsReport::dpad_left},
+			{"D-Pad Right", &ButtonsReport::dpad_right},
+			{"D-Pad Up", &ButtonsReport::dpad_up},
+			{"D-Pad Down", &ButtonsReport::dpad_down},
+		};
+
+		for (size_t i = 0; i < sizeof(dpad_buttons) / sizeof(dpad_buttons[0]); i++) {
+			wchar_t msg[256];
+			swprintf(msg, 256, L"Press %hs on controller (hold 3s to skip)", dpad_buttons[i].dpad_name);
+			XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, msg);
+
+			uint8_t previousButtonIdx = 0xFF;
+			uint8_t foundButtonIdx = 0xFF;
+			uint32_t pressWaitCount = 0;
+			bool skipped = false;
+
+			while (g_mappingState.active && foundButtonIdx == 0xFF && !skipped) {
+				uint8_t currentButtonIdx = g_mappingState.pressedButtonIdx;
+
+				if (previousButtonIdx == 0xFF && currentButtonIdx != 0xFF) {
+					pressWaitCount = 0;
+					g_mappingState.holdCount = 0;
+				} else if (previousButtonIdx != 0xFF && currentButtonIdx == 0xFF) {
+					if (pressWaitCount > 0) {
+						foundButtonIdx = previousButtonIdx;
+					}
+					pressWaitCount = 0;
+					g_mappingState.holdCount = 0;
+				} else if (currentButtonIdx != 0xFF) {
+					pressWaitCount++;
+					g_mappingState.holdCount++;
+					if (g_mappingState.holdCount >= 60) {
+						skipped = true;
+						XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Mapping skipped");
+						// Wait for button release
+						while (g_mappingState.active && g_mappingState.pressedButtonIdx != 0xFF) {
+							Sleep(50);
+						}
+					}
+				}
+
+				previousButtonIdx = currentButtonIdx;
+				Sleep(50);
+			}
+
+			if (foundButtonIdx != 0xFF) {
+				HidButtonMapEntry entry = {foundButtonIdx, dpad_buttons[i].field};
+				mappedButtons.push_back(entry);
+			}
+		}
+	}
+
+	// Map axes individually - map discovered axes to Xbox axis names
+	const char* axis_names[] = {
+		"Left Stick Horizontal",
+		"Left Stick Vertical",
+		"Right Stick Horizontal",
+		"Right Stick Vertical",
+		"Left Trigger",
+		"Right Trigger"
+	};
+
+	for (uint8_t i = 0; i < axisCount; i++) {
+		if (!g_mappingState.active)
+			break;
+		wchar_t msg[256];
+		swprintf(msg, 256, L"Move axis %d (%hs) or hold button 3s to skip", i, axis_names[i % 6]);
+		XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, msg);
+
+		int16_t threshold = 8000;
+		int16_t previousValue = 0;
+		uint8_t foundAxis = 0xFF;
+		bool skipped = false;
+
+		// Find which actual axis index matches this discovered axis
+		// The discovered axis usage is in availableAxes[i]
+		uint16_t targetUsage = availableAxes[i];
+		uint8_t axisValueIndex = 0xFF;
+
+		// Map usage to axisValues index
+		if (targetUsage == HID_USAGE_AXIS_X) axisValueIndex = 0;
+		else if (targetUsage == HID_USAGE_AXIS_Y) axisValueIndex = 1;
+		else if (targetUsage == HID_USAGE_AXIS_Z) axisValueIndex = 2;
+		else if (targetUsage == HID_USAGE_AXIS_RX) axisValueIndex = 3;
+		else if (targetUsage == HID_USAGE_AXIS_RY) axisValueIndex = 4;
+		else if (targetUsage == HID_USAGE_AXIS_RZ) axisValueIndex = 5;
+
+		while (g_mappingState.active && foundAxis == 0xFF && !skipped) {
+			int16_t value = (axisValueIndex != 0xFF) ? g_mappingState.axisValues[axisValueIndex] : 0;
+			if ((previousValue == 0 || previousValue < threshold && previousValue > -threshold) &&
+				(value > threshold || value < -threshold)) {
+				// Detected transition to movement
+				foundAxis = i;
+			}
+
+			// Check for 3 second hold to skip
+			if (g_mappingState.pressedButtonIdx != 0xFF) {
+				g_mappingState.holdCount++;
+				if (g_mappingState.holdCount >= 60) {
+					skipped = true;
+					XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Mapping skipped");
+					// Wait for button release
+					while (g_mappingState.active && g_mappingState.pressedButtonIdx != 0xFF) {
+						Sleep(50);
+					}
+				}
+			} else {
+				g_mappingState.holdCount = 0;
+			}
+
+			previousValue = value;
+			Sleep(50);
+		}
+
+		if (foundAxis != 0xFF) {
+			uint16_t usage = availableAxes[i];
+			// Map to Xbox field based on actual axis usage
+			int16_t ButtonsReport::* field = nullptr;
+			if (usage == HID_USAGE_AXIS_X) field = &ButtonsReport::x;
+			else if (usage == HID_USAGE_AXIS_Y) field = &ButtonsReport::y;
+			else if (usage == HID_USAGE_AXIS_Z) field = &ButtonsReport::z;
+			else if (usage == HID_USAGE_AXIS_RX) field = &ButtonsReport::rx;
+			else if (usage == HID_USAGE_AXIS_RY) field = &ButtonsReport::ry;
+			else if (usage == HID_USAGE_AXIS_RZ) field = &ButtonsReport::rz;
+
+			if (field) {
+				HidAxisMapEntry entry = {usage, field};
+				mappedAxes.push_back(entry);
+			}
+		}
+	}
+
+	// Build dynamic mapping
+	std::unique_ptr<DynamicMappingData> dynamicData(new DynamicMappingData());
+	dynamicData->axisEntries = mappedAxes;
+	dynamicData->buttonEntries = mappedButtons;
+
+	HidDeviceMapping newMapping = {0};
+	newMapping.vendorId = controller->vendorId;
+	newMapping.productId = controller->productId;
+	newMapping.axisMapCount = (uint8_t)mappedAxes.size();
+	newMapping.buttonMapCount = (uint8_t)mappedButtons.size();
+	newMapping.invert = inverts;
+
+	if (!mappedAxes.empty()) {
+		newMapping.axisMap = dynamicData->axisEntries.data();
+	}
+	if (!mappedButtons.empty()) {
+		newMapping.buttonMap = dynamicData->buttonEntries.data();
+	}
+
+	// Only save if mapping process wasn't interrupted
+	if (!g_mappingState.active) {
+		DbgPrint("EINTIM: Mapping was interrupted - not saving incomplete mapping\n");
+		memset(&g_mappingState, 0, sizeof(MappingState));
+		g_mappingState.pressedButtonIdx = 0xFF;
+		return 0;
+	}
+
+	// Apply mapping to controller
+	g_dynamicData.push_back(std::move(dynamicData));
+	g_dynamicData.back()->axisEntries = mappedAxes;
+	g_dynamicData.back()->buttonEntries = mappedButtons;
+
+	HidDeviceMapping finalMapping = newMapping;
+	finalMapping.axisMap = g_dynamicData.back()->axisEntries.data();
+	finalMapping.buttonMap = g_dynamicData.back()->buttonEntries.data();
+
+	g_dynamicMappings.push_back(finalMapping);
+	connectedControllers[controllerIndex].map = &g_dynamicMappings.back();
+
+	SaveMappingsToFile("HDD:\\hiddriver.json");
+
+	XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Mapping complete! Controller ready.");
+	g_mappingState.active = false;
+
+	return 0;
+}
 
 int interruptHandler(DWORD deviceHandle, int32_t a2) {
 	HidControllerExtension* driverExtension = (HidControllerExtension*)((deviceHandle - 4));
@@ -644,8 +945,8 @@ int interruptHandler(DWORD deviceHandle, int32_t a2) {
 	*/
 	// Will need to hardcode a special case for it later
 	if (NeedsNintendoHandshake(connectedControllers[index].vendorId, connectedControllers[index].productId) && connectedControllers[index].nintendo_handshake_state != DONE) {
-		DbgPrint("EINTIM: Gotta do nintendo handshake for this one!(fuck them)\r\n");
 		if (connectedControllers[index].nintendo_handshake_state == INITIAL) {
+			DbgPrint("EINTIM: Gotta do nintendo handshake for this one!\r\n");
 			usb_endpoint_descriptor* endpoint_descriptor = UsbdGetEndpointDescriptor(
 				driverExtension->deviceHandle, 0,
 				USB_ENDPOINT_TYPE_INTERRUPT, USB_DIRECTION_OUT);
@@ -694,11 +995,61 @@ int interruptHandler(DWORD deviceHandle, int32_t a2) {
 			payload++;
 		}
 
-		HidFillButtonsReport(
-			payload,
-			connectedControllers[index].reportInfo,  
-			&buttonReport,
-			connectedControllers[index].reportId);
+		if (connectedControllers[index].map) {
+			HidFillButtonsReport(
+				payload,
+				connectedControllers[index].reportInfo,
+				&buttonReport,
+				connectedControllers[index].reportId,
+				connectedControllers[index].map);
+		}
+		else if (g_mappingState.active && g_mappingState.controllerIndex == index) {
+			// Collect raw button states during mapping - only check discovered buttons
+			g_mappingState.pressedButtonIdx = 0xFF;
+			uint8_t currentPressCount = 0;
+
+			for (uint8_t i = 0; i < g_mappingState.availableButtonCount; i++) {
+				uint8_t buttonIdx = g_mappingState.availableButtons[i];
+				HID_ReportItem_t* item = FindButtonItem(connectedControllers[index].reportInfo, buttonIdx, connectedControllers[index].reportId);
+				if (item && USB_GetHIDReportItemInfo(connectedControllers[index].reportId, payload, item)) {
+					if (item->Value) {
+						g_mappingState.pressedButtonIdx = buttonIdx;
+						currentPressCount++;
+					}
+				}
+			}
+
+			// Clear if multiple buttons pressed (avoid accidental mappings)
+			if (currentPressCount != 1) {
+				g_mappingState.pressedButtonIdx = 0xFF;
+			}
+
+			// Collect raw axis states
+			for (uint8_t i = 0; i < 6; i++) {
+				uint16_t usages[] = {HID_USAGE_AXIS_X, HID_USAGE_AXIS_Y, HID_USAGE_AXIS_Z,
+									  HID_USAGE_AXIS_RX, HID_USAGE_AXIS_RY, HID_USAGE_AXIS_RZ};
+				HID_ReportItem_t* item = FindItemByUsage(connectedControllers[index].reportInfo,
+					HID_USAGE_PAGE_GENERIC_DESKTOP, usages[i], connectedControllers[index].reportId);
+				if (item && USB_GetHIDReportItemInfo(connectedControllers[index].reportId, payload, item)) {
+					int32_t logMin = (int32_t)item->Attributes.Logical.Minimum;
+					int32_t logMax = (int32_t)item->Attributes.Logical.Maximum;
+					int32_t raw = (int32_t)item->Value;
+
+					int16_t result = 0;
+					if (logMax > logMin) {
+						if (raw < logMin) raw = logMin;
+						if (raw > logMax) raw = logMax;
+						int64_t numerator = (int64_t)(raw - logMin) * 65535;
+						int32_t denominator = (logMax - logMin);
+						int32_t scaled = (int32_t)((numerator + denominator / 2) / denominator);
+						result = (int16_t)(scaled - 32768);
+					} else {
+						result = (int16_t)raw;
+					}
+					g_mappingState.axisValues[i] = result;
+				}
+			}
+		}
 
 		connectedControllers[index].currentState = buttonReport;
 	}
@@ -725,6 +1076,14 @@ int HidRemoveDeviceHook(deviceHandle* deviceHandle2) {
 
 	DbgPrint("EINTIM: Removing controller with handle %p\n", deviceHandle2);
 
+	// Check if this controller is currently in mapping process and stop it
+	if (g_mappingState.active && g_mappingState.controllerIndex == index) {
+		DbgPrint("EINTIM: Stopping mapping process for removed controller %d\n", index);
+		g_mappingState.active = false;
+		memset(&g_mappingState, 0, sizeof(MappingState));
+		g_mappingState.pressedButtonIdx = 0xFF;
+	}
+
 	if (!deviceHandle2->driver->cleanupDone) {
 		deviceHandle2->driver->cleanupDone = 1;
 		connectedControllers[index].controllerDriver = nullptr;
@@ -734,6 +1093,10 @@ int HidRemoveDeviceHook(deviceHandle* deviceHandle2) {
 			USB_FreeReportInfo(connectedControllers[index].reportInfo);
 			connectedControllers[index].reportInfo = nullptr;
 		}
+
+		// Clear mapping data
+		connectedControllers[index].map = nullptr;
+		memset(&connectedControllers[index], 0, sizeof(Controller));
 
 		// Clean up is currently broken, so it leaks up to 1kb of memory on every controller reconnect
 		/*
@@ -791,6 +1154,7 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 		c.reportInfo = nullptr;   // will be filled in INIT_GET_REPORT_DESCRIPTOR
 		c.vendorId = vendorId;
 		c.productId = productId;
+		c.map = FindMapping(vendorId, productId);
 		c.nintendo_handshake_state = NINTENDO_HANDSHAKE_STATE::INITIAL;
 
 		HidControllerExtension* controllerDriver = new HidControllerExtension();
@@ -914,10 +1278,10 @@ NTSTATUS XInputdReadStateHook(DWORD dwDeviceContext, PDWORD pdwPacketNumber, PXI
 			}
 		}
 
-		if (b.cross)    pInputData->wButtons |= XINPUT_GAMEPAD_A;
-		if (b.circle)   pInputData->wButtons |= XINPUT_GAMEPAD_B;
-		if (b.triangle) pInputData->wButtons |= XINPUT_GAMEPAD_Y;
-		if (b.square)   pInputData->wButtons |= XINPUT_GAMEPAD_X;
+		if (b.a_button)    pInputData->wButtons |= XINPUT_GAMEPAD_A;
+		if (b.b_button)   pInputData->wButtons |= XINPUT_GAMEPAD_B;
+		if (b.y_button) pInputData->wButtons |= XINPUT_GAMEPAD_Y;
+		if (b.x_button)   pInputData->wButtons |= XINPUT_GAMEPAD_X;
 		if (b.start)    pInputData->wButtons |= XINPUT_GAMEPAD_START;
 		if (b.back)     pInputData->wButtons |= XINPUT_GAMEPAD_BACK;
 		if (b.r3)       pInputData->wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
@@ -1023,11 +1387,11 @@ bool initFunctionPointers() {
 		UsbdPowerDownNotification = (usbd_powerdown_notification_func_t)0x8010E140; // argument to last function call in UsbdDriverEntry
 		UsbdDriverEntry = (usbd_powerdown_notification_func_t)0x8010DE48; // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 3C 80 ? ? 38 A0 
 
-		//Remove two usb related bugchecks to allow reinitialisation of the usb driver
+		// Remove two usb related bugchecks to allow reinitialisation of the usb driver
 		*(DWORD*)0x80116298 = 0x48000018;
 		*(DWORD*)0x801132A4 = 0x48000018;
 
-		//DEVKIT only: Remove assertions(Microsoft did not think that we'd come and reset the usb driver, never let them know your next move typa shit)
+		// DEVKIT only: Remove assertions(Microsoft did not think that we'd come and reset the usb driver, never let them know your next move typa shit)
 		/*
 		*(DWORD*)0x80096B84 = 0x60000000;
 		*(DWORD*)0x80095F6C = 0x60000000;
@@ -1047,7 +1411,7 @@ bool initFunctionPointers() {
 		UsbdPowerDownNotification = (usbd_powerdown_notification_func_t)0x800D8FC8; // argument to last function call in UsbdDriverEntry
 		UsbdDriverEntry = (usbd_powerdown_notification_func_t)0x800D8D08; // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 3C 80 ? ? 38 A0 
 
-		//Remove two usb related bugchecks to allow reinitialisation of the usb driver
+		// Remove two usb related bugchecks to allow reinitialisation of the usb driver
 		*(DWORD*)0x800E05E4 = 0x48000018;
 		*(DWORD*)0x800DD8E0 = 0x48000018;
 
@@ -1071,6 +1435,11 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 		if (!initFunctionPointers())
 			return FALSE;
 
+		DbgPrint("EINTIM: Loading mappings!\r\n");
+		if (!LoadMappingsFromFile("HDD:\\hiddriver.json")) {
+			DbgPrint("EINTIM: Failed to load mappings(JSON either doesn't exist yet or syntax error)!\r\n");
+		}
+
 		if (isDevkit) {
 			HidAddDeviceDetour = Detour((void*)0x8011AE38, (void*)HidAddDeviceHook); // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 7C 7C 1B 78 ? ? ? ? 7C 7F 1B 79
 			HidRemoveDeviceDetour = Detour((void*)0x8011ADF8, (void*)HidRemoveDeviceHook); // 81 63 ? ? 39 40 ? ? 39 20 ? ? 99 4B
@@ -1093,12 +1462,15 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 
 		DbgPrint("EINTIM: Resetting USB driver!\n");
 		UsbdPowerDownNotification();
-		//For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
+		// For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
 		MmFreePhysicalMemory(0, *(DWORD*)UsbPhysicalPage);
 		DbgPrint("EINTIM: USB driver shutdown complete.\n");
 		UsbdDriverEntry();
 		DbgPrint("EINTIM: USB driver reset complete.\n");
 		DbgPrint("EINTIM: Hooks installed\n");
+
+		// Start mapping manager thread
+		MakeThread((LPTHREAD_START_ROUTINE)MappingManagerThreadProc, nullptr);
 	}
 	return TRUE;
 }

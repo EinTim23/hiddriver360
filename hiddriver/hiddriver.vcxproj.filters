@@ -4,6 +4,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Detours.cpp" />
     <ClCompile Include="hid_parser.c" />
+    <ClCompile Include="mapping.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="xex.xml" />
@@ -11,5 +12,7 @@
   <ItemGroup>
     <ClInclude Include="Detours.h" />
     <ClInclude Include="hid_parser.h" />
+    <ClInclude Include="mapping.h" />
+    <ClInclude Include="usb.h" />
   </ItemGroup>
 </Project>
