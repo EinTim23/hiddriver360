@@ -3,11 +3,13 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Detours.cpp" />
+    <ClCompile Include="hid_parser.c" />
   </ItemGroup>
   <ItemGroup>
     <None Include="xex.xml" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Detours.h" />
+    <ClInclude Include="hid_parser.h" />
   </ItemGroup>
 </Project>

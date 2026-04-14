@@ -90,8 +90,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Detours.h" />
+    <ClInclude Include="hid_parser.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="hid_parser.c" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Detours.cpp" />
   </ItemGroup>
