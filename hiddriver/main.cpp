@@ -17,7 +17,7 @@ Detour HidRemoveDeviceDetour;
 Detour XamInputSetStateDetour;
 Detour XamInputGetCapabilitiesDetour;
 Detour XInputdReadStateDetour;
-
+#define XNOTIFYUI_CUSTOM (XNOTIFYQUEUEUI_TYPE)80
 uint16_t swap_endianness_16(uint16_t val) {
 	return (val >> 8) | (val << 8);
 }
@@ -39,7 +39,7 @@ HANDLE MakeThread(LPTHREAD_START_ROUTINE Address, PVOID arg) {
 	return Handle;
 }
 
-void XNotifyUI(XNOTIFYQUEUEUI_TYPE Type, PWCHAR String) { XNotifyQueueUI(Type, XUSER_INDEX_ANY, XNOTIFYUI_PRIORITY_HIGH, String, 0); }
+void XNotifyUI(XNOTIFYQUEUEUI_TYPE Type, PWCHAR String) { XNotifyQueueUI(Type, XUSER_INDEX_ANY, XNOTIFYUI_PRIORITY_DEFAULT, String, 0); }
 
 struct UsbTrb {
 	DWORD endpoint;
@@ -613,7 +613,7 @@ unsigned int __stdcall MappingManagerThreadProc(void* param){
 }
 
 unsigned int __stdcall MappingThreadProc(void* param) {
-	XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Unknown controller connected. Starting mapping process...");
+	XNotifyUI(XNOTIFYUI_CUSTOM, L"Unknown controller connected. Starting mapping process...");
 	Controller* controller = (Controller*)param;
 	HID_ReportInfo_t* info = controller->reportInfo;
 	uint8_t reportId = controller->reportId;
@@ -650,13 +650,17 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 
 	// Invert vertical axes by default
 	inverts.invertY = true;   // Left stick vertical
-	inverts.invertRY = true;  // Right stick vertical
+	inverts.invertRZ = true;  // Right stick vertical
 
 	// Check for hat switch and analog triggers
 	bool hasHatSwitch = FindHatItem(info, reportId) != nullptr;
 
 	// If there are more than 4 axes (4 for dual analog sticks), the extra ones are analog triggers
 	bool hasAnalogTriggers = axisCount > 4;
+
+	// Track which HID usages we've mapped during this session
+	uint16_t mappedUsages[6] = {};
+	uint8_t mappedCount = 0;
 
 	// Map buttons in predefined Xbox order
 	const struct {
@@ -691,7 +695,7 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 
 		wchar_t msg[256];
 		swprintf(msg, 256, L"Press %hs on controller (hold 3s to skip)", xbox_buttons[i].xbox_name);
-		XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, msg);
+		XNotifyUI(XNOTIFYUI_CUSTOM, msg);
 
 		uint8_t previousButtonIdx = 0xFF;
 		uint8_t foundButtonIdx = 0xFF;
@@ -718,7 +722,7 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 				// 3 second hold = 60 iterations at 50ms each
 				if (g_mappingState.holdCount >= 60) {
 					skipped = true;
-					XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Mapping skipped");
+					XNotifyUI(XNOTIFYUI_CUSTOM, L"Mapping skipped");
 					// Wait for button release
 					while (g_mappingState.active && g_mappingState.pressedButtonIdx != 0xFF) {
 						Sleep(50);
@@ -751,7 +755,7 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 		for (size_t i = 0; i < sizeof(dpad_buttons) / sizeof(dpad_buttons[0]); i++) {
 			wchar_t msg[256];
 			swprintf(msg, 256, L"Press %hs on controller (hold 3s to skip)", dpad_buttons[i].dpad_name);
-			XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, msg);
+			XNotifyUI(XNOTIFYUI_CUSTOM, msg);
 
 			uint8_t previousButtonIdx = 0xFF;
 			uint8_t foundButtonIdx = 0xFF;
@@ -775,7 +779,7 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 					g_mappingState.holdCount++;
 					if (g_mappingState.holdCount >= 60) {
 						skipped = true;
-						XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Mapping skipped");
+						XNotifyUI(XNOTIFYUI_CUSTOM, L"Mapping skipped");
 						// Wait for button release
 						while (g_mappingState.active && g_mappingState.pressedButtonIdx != 0xFF) {
 							Sleep(50);
@@ -794,85 +798,32 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 		}
 	}
 
-	// Map axes individually - map discovered axes to Xbox axis names
-	const char* axis_names[] = {
-		"Left Stick Horizontal",
-		"Left Stick Vertical",
-		"Right Stick Horizontal",
-		"Right Stick Vertical",
-		"Left Trigger",
-		"Right Trigger"
-	};
+	// use static axis mapping for now as for gamepads it should be the same for every gamepad
+	HidAxisMapEntry entry;
 
-	for (uint8_t i = 0; i < axisCount; i++) {
-		if (!g_mappingState.active)
-			break;
-		wchar_t msg[256];
-		swprintf(msg, 256, L"Move axis %d (%hs) or hold button 3s to skip", i, axis_names[i % 6]);
-		XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, msg);
+	entry.usage = HID_USAGE_AXIS_X;
+	entry.field = &ButtonsReport::x;
+	mappedAxes.push_back(entry);
 
-		int16_t threshold = 8000;
-		int16_t previousValue = 0;
-		uint8_t foundAxis = 0xFF;
-		bool skipped = false;
+	entry.usage = HID_USAGE_AXIS_Y;
+	entry.field = &ButtonsReport::y;
+	mappedAxes.push_back(entry);
 
-		// Find which actual axis index matches this discovered axis
-		// The discovered axis usage is in availableAxes[i]
-		uint16_t targetUsage = availableAxes[i];
-		uint8_t axisValueIndex = 0xFF;
+	entry.usage = HID_USAGE_AXIS_Z;
+	entry.field = &ButtonsReport::z;
+	mappedAxes.push_back(entry);
 
-		// Map usage to axisValues index
-		if (targetUsage == HID_USAGE_AXIS_X) axisValueIndex = 0;
-		else if (targetUsage == HID_USAGE_AXIS_Y) axisValueIndex = 1;
-		else if (targetUsage == HID_USAGE_AXIS_Z) axisValueIndex = 2;
-		else if (targetUsage == HID_USAGE_AXIS_RX) axisValueIndex = 3;
-		else if (targetUsage == HID_USAGE_AXIS_RY) axisValueIndex = 4;
-		else if (targetUsage == HID_USAGE_AXIS_RZ) axisValueIndex = 5;
+	entry.usage = HID_USAGE_AXIS_RX;
+	entry.field = &ButtonsReport::rx;
+	mappedAxes.push_back(entry);
 
-		while (g_mappingState.active && foundAxis == 0xFF && !skipped) {
-			int16_t value = (axisValueIndex != 0xFF) ? g_mappingState.axisValues[axisValueIndex] : 0;
-			if ((previousValue == 0 || previousValue < threshold && previousValue > -threshold) &&
-				(value > threshold || value < -threshold)) {
-				// Detected transition to movement
-				foundAxis = i;
-			}
+	entry.usage = HID_USAGE_AXIS_RY;
+	entry.field = &ButtonsReport::ry;
+	mappedAxes.push_back(entry);
 
-			// Check for 3 second hold to skip
-			if (g_mappingState.pressedButtonIdx != 0xFF) {
-				g_mappingState.holdCount++;
-				if (g_mappingState.holdCount >= 60) {
-					skipped = true;
-					XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Mapping skipped");
-					// Wait for button release
-					while (g_mappingState.active && g_mappingState.pressedButtonIdx != 0xFF) {
-						Sleep(50);
-					}
-				}
-			} else {
-				g_mappingState.holdCount = 0;
-			}
-
-			previousValue = value;
-			Sleep(50);
-		}
-
-		if (foundAxis != 0xFF) {
-			uint16_t usage = availableAxes[i];
-			// Map to Xbox field based on actual axis usage
-			int16_t ButtonsReport::* field = nullptr;
-			if (usage == HID_USAGE_AXIS_X) field = &ButtonsReport::x;
-			else if (usage == HID_USAGE_AXIS_Y) field = &ButtonsReport::y;
-			else if (usage == HID_USAGE_AXIS_Z) field = &ButtonsReport::z;
-			else if (usage == HID_USAGE_AXIS_RX) field = &ButtonsReport::rx;
-			else if (usage == HID_USAGE_AXIS_RY) field = &ButtonsReport::ry;
-			else if (usage == HID_USAGE_AXIS_RZ) field = &ButtonsReport::rz;
-
-			if (field) {
-				HidAxisMapEntry entry = {usage, field};
-				mappedAxes.push_back(entry);
-			}
-		}
-	}
+	entry.usage = HID_USAGE_AXIS_RZ;
+	entry.field = &ButtonsReport::rz;
+	mappedAxes.push_back(entry);
 
 	// Build dynamic mapping
 	std::unique_ptr<DynamicMappingData> dynamicData(new DynamicMappingData());
@@ -915,7 +866,7 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 
 	SaveMappingsToFile("HDD:\\hiddriver.json");
 
-	XNotifyUI(XNOTIFYUI_TYPE_COMPLAINT, L"Mapping complete! Controller ready.");
+	XNotifyUI(XNOTIFYUI_CUSTOM, L"Mapping complete! Controller ready.");
 	g_mappingState.active = false;
 
 	return 0;
@@ -1351,6 +1302,7 @@ NTSTATUS XInputdReadStateHook(DWORD dwDeviceContext, PDWORD pdwPacketNumber, PXI
 void* XamInputSetState = nullptr;
 void* XamInputGetCapabilitiesEx = nullptr;
 void* XInputdReadStatePtr = nullptr;
+uint16_t* XNotifyTimerPtr = nullptr;
 bool isDevkit = true;
 DWORD UsbPhysicalPage = 0;
 bool initFunctionPointers() {
@@ -1403,6 +1355,9 @@ bool initFunctionPointers() {
 		* (DWORD*)0x8010E04C = 0x60000000;
 		*(DWORD*)0x8010E05C = 0x60000000;
 		UsbPhysicalPage = 0x8020A9B8;
+
+		*(uint16_t*)0x8176A7C6 = 80; // Register custom notification type condition
+		XNotifyTimerPtr = (uint16_t*)0x8176a7ca;
 	}
 	else {
 		DbgPrint("EINTIM: Running in retail mode\n");
@@ -1419,8 +1374,12 @@ bool initFunctionPointers() {
 		*(DWORD*)0x800D8F00 = 0x60000000;
 		*(DWORD*)0x800D8EF0 = 0x60000000;
 		UsbPhysicalPage = 0x801A8098;
+
+		*(uint16_t*)0x816AB7A6 = 80; // Register custom notification type condition
+		XNotifyTimerPtr = (uint16_t*)0x816ab7aa;
 	}
 
+	*XNotifyTimerPtr = 1500;
 	return true;
 }
 
