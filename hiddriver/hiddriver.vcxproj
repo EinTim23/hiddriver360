@@ -95,7 +95,7 @@
     <ClInclude Include="usb.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="hid_parser.c" />
+    <ClCompile Include="hid_parser.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Detours.cpp" />
     <ClCompile Include="mapping.cpp" />

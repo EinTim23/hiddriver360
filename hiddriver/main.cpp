@@ -206,6 +206,25 @@ bool NeedsNintendoHandshake(uint16_t vid, uint16_t pid) {
 
 // nintendo specific end
 
+// dualshock 3 specific start
+const uint16_t SONY_VENDOR_ID = 0x054C;
+const uint16_t DS3_PRODUCT_ID = 0x0268;
+const unsigned char DS3_HANDSHAKE[4] = { 0x42, 0x0C, 0x00, 0x00 };
+
+bool NeedsDualshock3Handshake(uint16_t vid, uint16_t pid) {
+	if (vid != SONY_VENDOR_ID) return false;
+	return pid == DS3_PRODUCT_ID;
+}
+
+enum DS3_FEATURE_VALUE
+{
+	Ds3FeatureDeviceAddress = 0x03F2,
+	Ds3FeatureStartDevice = 0x03F4,
+	Ds3FeatureHostAddress = 0x03F5
+
+};
+// dualshock 3 specific end
+
 typedef usb_device_descriptor* (*usb_device_descriptor_func_t)(deviceHandle* handle);
 typedef usb_interface_descriptor* (*usb_interface_descriptor_func_t)(deviceHandle* handle);
 typedef int(*usb_add_device_complete_func_t)(deviceHandle* handle, int status_code);
@@ -370,6 +389,10 @@ void SendInterruptRequest(
 	UsbdQueueAsyncTransfer(deviceHandle, interruptTrb);
 }
 
+int32_t noopCompleteHandler(DWORD deviceHandle, int32_t status) {
+	return 0;
+}
+
 int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 	HidControllerExtension* controllerDriver = (HidControllerExtension*)((BYTE*)deviceHandle - 36);
 	DbgPrint("EINTIM: Control transfer completed.\n");
@@ -413,8 +436,7 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 
 		// Parse HID descriptor
 		HID_ReportInfo_t* reportInfo = nullptr;
-		uint8_t parseResult = USB_ProcessHIDReport(
-			(const uint8_t*)reportDescriptorBuffer,
+		uint8_t parseResult = USB_ProcessHIDReport((const uint8_t*)reportDescriptorBuffer,
 			hidDescriptorBuffer.wDescriptorLength,
 			&reportInfo);
 
@@ -425,6 +447,7 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 			return -1;
 		}
 
+		DbgPrint("EINTIM: parse done stage 1\r\n");
 		g_InitState = InitState::INIT_DONE;
 
 		c.reportInfo = reportInfo;
@@ -471,6 +494,18 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 
 		DbgPrint("EINTIM: Registered virtual controller inside XAM with index: %d.\n", userIndex);
 
+		if (NeedsDualshock3Handshake(c.vendorId, c.productId)) {
+			DbgPrint("EINTIM: Sending dualshock3 handshake!\r\n");
+			SendControlRequest(controllerDriver->deviceHandle,
+				&controllerDriver->controlTrb,
+				0x21,
+				0x09, 
+				Ds3FeatureStartDevice, 
+				0, 
+				sizeof(DS3_HANDSHAKE), 
+				(void*)DS3_HANDSHAKE, 
+				(DWORD)noopCompleteHandler);
+		}
 		return UsbdQueueAsyncTransfer(controllerDriver->deviceHandle, &controllerDriver->interruptTrb);
 	}
 
@@ -644,9 +679,6 @@ void HidFillButtonsReport(
 	}
 }
 
-int32_t noopCompleteHandler(DWORD deviceHandle, int32_t status) {
-	return 0;
-}
 unsigned int __stdcall MappingThreadProc(void* param);
 unsigned int __stdcall MappingManagerThreadProc(void* param){
 	// This thread monitors for controllers needing mapping and spawns mapping threads
@@ -764,7 +796,7 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 		if (!g_mappingState.active)
 			break;
 
-		wchar_t msg[256];
+		static wchar_t msg[256];
 		swprintf(msg, 256, L"Press %hs on controller (hold 3s to skip)", xbox_buttons[i].xbox_name);
 		XNotifyUI(XNOTIFYUI_CUSTOM, msg);
 
@@ -1086,7 +1118,7 @@ int interruptHandler(DWORD deviceHandle, int32_t a2) {
 
 			// Collect raw axis states
 			for (uint8_t i = 0; i < 6; i++) {
-				uint16_t usages[] = {HID_USAGE_AXIS_X, HID_USAGE_AXIS_Y, HID_USAGE_AXIS_Z,
+				static const uint16_t usages[] = {HID_USAGE_AXIS_X, HID_USAGE_AXIS_Y, HID_USAGE_AXIS_Z,
 									  HID_USAGE_AXIS_RX, HID_USAGE_AXIS_RY, HID_USAGE_AXIS_RZ};
 				HID_ReportItem_t* item = FindItemByUsage(connectedControllers[index].reportInfo,
 					HID_USAGE_PAGE_GENERIC_DESKTOP, usages[i], connectedControllers[index].reportId);
@@ -1153,17 +1185,10 @@ int HidRemoveDeviceHook(deviceHandle* deviceHandle2) {
 			USB_FreeReportInfo(connectedControllers[index].reportInfo);
 			connectedControllers[index].reportInfo = nullptr;
 		}
-
 		// Clear mapping data
 		connectedControllers[index].map = nullptr;
 		memset(&connectedControllers[index], 0, sizeof(Controller));
-
-		// Clean up is currently broken, so it leaks up to 1kb of memory on every controller reconnect
-		/*
-		UsbdQueueCloseEndpoint(deviceHandle2, &deviceHandle2->driver->interruptEndpoint);
-		UsbdQueueCloseDefaultEndpoint(deviceHandle2, &deviceHandle2->driver->defaultEndpoint);
-		UsbdRemoveDeviceComplete(deviceHandle2);
-		delete deviceHandle2->driver;*/
+		delete deviceHandle2->driver;
 		deviceHandle2->driver = nullptr;
 		free(connectedControllers[index].reportData);
 		DbgPrint("EINTIM: Removed controller with handle %p\n", deviceHandle2);
@@ -1219,7 +1244,6 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 
 		HidControllerExtension* controllerDriver = new HidControllerExtension();
 		c.deviceHandle = deviceHandle;
-
 		controllerDriver->deviceType = 0;
 		deviceHandle->driver = controllerDriver;
 		controllerDriver->deviceHandle = deviceHandle;

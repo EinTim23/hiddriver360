@@ -55,10 +55,10 @@ static void release_##structure(structure##_t* pointer)\
 }
 #endif
 
-ACQUIRE_AND_RELEASE(HID_ReportSizeInfo, 100);
-ACQUIRE_AND_RELEASE(HID_CollectionPath, 25);
-ACQUIRE_AND_RELEASE(HID_ReportInfo, 1);
-ACQUIRE_AND_RELEASE(HID_ReportItem, 50);
+ACQUIRE_AND_RELEASE(HID_ReportSizeInfo, 1000);
+ACQUIRE_AND_RELEASE(HID_CollectionPath, 250);
+ACQUIRE_AND_RELEASE(HID_ReportInfo, 5);
+ACQUIRE_AND_RELEASE(HID_ReportItem, 1500);
 
 
 void USB_FreeReportInfo(HID_ReportInfo_t* ReportInfo)
@@ -84,11 +84,11 @@ uint8_t USB_ProcessHIDReport(const uint8_t* ReportData,
 	HID_CollectionPath_t* FirstCollectionPath = acquire_HID_CollectionPath();
 	memset(FirstCollectionPath, 0, sizeof(HID_CollectionPath_t));
 	HID_ReportInfo_t* ParserData = acquire_HID_ReportInfo();
-	HID_StateTable_t StateTable[HID_STATETABLE_STACK_DEPTH];
+	static HID_StateTable_t StateTable[HID_STATETABLE_STACK_DEPTH];
 	HID_StateTable_t* CurrStateTable = &StateTable[0];
 	HID_CollectionPath_t* CurrCollectionPath = NULL;
 	HID_ReportSizeInfo_t* CurrReportIDInfo = FirstReportIDSize;
-	uint16_t UsageList[HID_USAGE_STACK_DEPTH];
+	static uint16_t UsageList[HID_USAGE_STACK_DEPTH];
 	uint8_t UsageListSize = 0;
 	HID_MinMax_t UsageMinMax = { 0, 0 };
 
