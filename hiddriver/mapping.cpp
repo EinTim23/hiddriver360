@@ -80,9 +80,25 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         {false, true, false, false, false, true},
     },
 
+    // ds4 wireless adapter
+   {
+       1356, 0x0BA0,
+       kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+       kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+       {false, true, false, false, false, true},
+   },
+
     // dualsense
     {
         1356, 3302,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // dualsense edge
+    {
+        1356, 0x0DF2,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},

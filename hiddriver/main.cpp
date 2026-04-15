@@ -147,7 +147,7 @@ struct switch_pro_input_report {
 	uint8_t  left_stick[3];  // 12-bit packed: lx in bits [11:0], ly in bits [23:12]
 	uint8_t  right_stick[3]; // same packing for rx, ry
 	uint8_t  vibrator;
-	uint8_t  imu[48];        // 3 × (accel xyz + gyro xyz), each int16_t
+	uint8_t  imu[48];        // 3 ï¿½ (accel xyz + gyro xyz), each int16_t
 };
 #pragma pack(pop)
 
@@ -1523,7 +1523,7 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 			return FALSE;
 		}
 
-		DbgPrint("EINTIM: HELLO from xbox 360 HID controller driver version 0.6 beta2\n");
+		DbgPrint("EINTIM: HELLO from xbox 360 HID controller driver version 0.6 beta\n");
 		if (!initFunctionPointers())
 			return FALSE;
 
@@ -1551,15 +1551,18 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 		XamInputSetStateDetour.Install();
 		XamInputGetCapabilitiesDetour.Install();
 		XInputdReadStateDetour.Install();
+		DbgPrint("EINTIM: Hooks installed\n");
 
+		// This is a dirty way of forcing the system to reenumerate USB devices so you don't need to replug the controllers
 		DbgPrint("EINTIM: Resetting USB driver!\n");
 		UsbdPowerDownNotification();
+
 		// For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
 		MmFreePhysicalMemory(0, *(DWORD*)UsbPhysicalPage);
 		DbgPrint("EINTIM: USB driver shutdown complete.\n");
+
 		UsbdDriverEntry();
 		DbgPrint("EINTIM: USB driver reset complete.\n");
-		DbgPrint("EINTIM: Hooks installed\n");
 
 		// Start mapping manager thread
 		MakeThread((LPTHREAD_START_ROUTINE)MappingManagerThreadProc, nullptr);
