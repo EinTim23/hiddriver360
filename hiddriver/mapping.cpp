@@ -21,7 +21,7 @@ static const HidAxisMapEntry kDefaultAxisMap[] = {
     { HID_USAGE_AXIS_RZ, &ButtonsReport::rz },
 };
 
-static const HidButtonMapEntry kDefaultButtonMap[] = {
+static const HidButtonMapEntry kDualSenseButtonMapping[] = {
     { 0,  &ButtonsReport::a_button    },
     { 1,  &ButtonsReport::b_button   },
     { 2,  &ButtonsReport::x_button   },
@@ -41,12 +41,44 @@ static const HidButtonMapEntry kDefaultButtonMap[] = {
     { 16, &ButtonsReport::dpad_down },
 };
 
+
+static const HidButtonMapEntry kPlayStationButtonMapping[] = {
+    { 1,  &ButtonsReport::a_button    },
+    { 2,  &ButtonsReport::b_button   },
+    { 0,  &ButtonsReport::x_button   },
+    { 3,  &ButtonsReport::y_button },
+    { 4,  &ButtonsReport::l1       },
+    { 5,  &ButtonsReport::r1       },
+    { 8,  &ButtonsReport::back     },
+    { 9,  &ButtonsReport::start    },
+    { 10, &ButtonsReport::l3       },
+    { 11, &ButtonsReport::r3       },
+    { 12, &ButtonsReport::xbox     },
+};
+
 static HidDeviceMapping kStaticDeviceMappings[] = {
+    // ds4 v2
     {
-        0x0000, 0x0000,
+        1356, 2508,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
-        kDefaultButtonMap, sizeof(kDefaultButtonMap) / sizeof(kDefaultButtonMap[0]),
-        {false, false, false, false, false, false},
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // ds4 v1
+    {
+        1356, 1476,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // dualsense
+    {
+        1356, 3302,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
     },
 };
 
