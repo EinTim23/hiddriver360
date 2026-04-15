@@ -124,16 +124,87 @@ InitState g_InitState;
 #define USB_DIRECTION_IN  1
 #define USB_DIRECTION_OUT 0
 
+uint16_t clamp_u16(uint16_t val, uint16_t lo, uint16_t hi) {
+	if (val < lo) return lo;
+	if (val > hi) return hi;
+	return val;
+}
+
+// Nintendo specific start
 const uint16_t NINTENDO_VENDOR_ID = 0x057E;
 const uint16_t SWITCH_PRO_PRODUCT_ID = 0x2009;
 
 const unsigned char nintendo_handshake[2] = { 0x80, 0x02 };
 const unsigned char hid_only_mode[2] = { 0x80, 0x04 };
 
+#pragma pack(push, 1)
+struct switch_pro_input_report {
+	uint8_t  timer;
+	uint8_t  battery_conn;   // upper nibble = battery, lower = connection type
+	uint8_t  buttons_right;  // Y X B A, R_SR, R_SL, R, ZR
+	uint8_t  buttons_mid;    // minus, plus, R_stick, L_stick, home, capture
+	uint8_t  buttons_left;   // dpad down/up/right/left, L_SR, L_SL, L, ZL
+	uint8_t  left_stick[3];  // 12-bit packed: lx in bits [11:0], ly in bits [23:12]
+	uint8_t  right_stick[3]; // same packing for rx, ry
+	uint8_t  vibrator;
+	uint8_t  imu[48];        // 3 × (accel xyz + gyro xyz), each int16_t
+};
+#pragma pack(pop)
+
+// buttons1
+// Face buttons
+#define SWITCH_BTN_Y        (1 << 0)
+#define SWITCH_BTN_X        (1 << 1)
+#define SWITCH_BTN_B        (1 << 2)
+#define SWITCH_BTN_A        (1 << 3)
+
+// Right shoulder cluster
+#define SWITCH_BTN_R        (1 << 6)
+#define SWITCH_BTN_ZR       (1 << 7)
+
+// System buttons
+#define SWITCH_BTN_MINUS    (1 << 8)
+#define SWITCH_BTN_PLUS     (1 << 9)
+
+// Sticks
+#define SWITCH_BTN_R_STICK  (1 << 10)
+#define SWITCH_BTN_L_STICK  (1 << 11)
+
+// System
+#define SWITCH_BTN_HOME     (1 << 12)
+#define SWITCH_BTN_CAPTURE  (1 << 13)
+
+// buttons2
+
+#define SWITCH_DPAD_DOWN    (1 << 0)
+#define SWITCH_DPAD_UP      (1 << 1)
+#define SWITCH_DPAD_RIGHT   (1 << 2)
+#define SWITCH_DPAD_LEFT    (1 << 3)
+
+#define SWITCH_BTN_L        (1 << 6)
+#define SWITCH_BTN_ZL       (1 << 7)
+
+static uint16_t STICK_MIN = 500;
+static uint16_t STICK_MAX = 3500;
+static uint16_t STICK_CENTER = 2000;
+
+int16_t normalize_stick(uint16_t raw) {
+	raw = clamp_u16(raw, STICK_MIN, STICK_MAX);
+	if (raw >= STICK_CENTER) {
+		return (int16_t)((int32_t)(raw - STICK_CENTER) * 32767 / (STICK_CENTER - STICK_MIN));
+	}
+	else {
+		return (int16_t)((int32_t)(STICK_CENTER - raw) * -32768 / (STICK_CENTER - STICK_MIN));
+	}
+};
+
 bool NeedsNintendoHandshake(uint16_t vid, uint16_t pid) {
 	if (vid != NINTENDO_VENDOR_ID) return false;
 	return pid == SWITCH_PRO_PRODUCT_ID;
 }
+
+
+// nintendo specific end
 
 typedef usb_device_descriptor* (*usb_device_descriptor_func_t)(deviceHandle* handle);
 typedef usb_interface_descriptor* (*usb_interface_descriptor_func_t)(deviceHandle* handle);
@@ -889,12 +960,6 @@ int interruptHandler(DWORD deviceHandle, int32_t a2) {
 		}
 	}
 
-	// this handshake works fine, but currently the actual input is borked because of a nintendo pro controller firmware bug
-	// https://gbatemp.net/threads/reverse-engineering-the-switch-pro-controller-wired-mode.475226/
-	/*
-	"WARNING: The HID descriptor does not match the data in the controller payload at all. My guess is it's just the Bluetooth HID descriptor c/p over. Because of that, if you enable the controller on Windows by poking that enable interrupt packet with your favorite USB tool, Windows will go crazy trying to interpret the packets it gets. I now have this on-screen controller keyboard I don't know how to get rid of."
-	*/
-	// Will need to hardcode a special case for it later
 	if (NeedsNintendoHandshake(connectedControllers[index].vendorId, connectedControllers[index].productId) && connectedControllers[index].nintendo_handshake_state != DONE) {
 		if (connectedControllers[index].nintendo_handshake_state == INITIAL) {
 			DbgPrint("EINTIM: Gotta do nintendo handshake for this one!\r\n");
@@ -946,7 +1011,51 @@ int interruptHandler(DWORD deviceHandle, int32_t a2) {
 			payload++;
 		}
 
-		if (connectedControllers[index].map) {
+		// This special case is needed because:
+		// https://gbatemp.net/threads/reverse-engineering-the-switch-pro-controller-wired-mode.475226/
+		/*
+		"WARNING: The HID descriptor does not match the data in the controller payload at all. My guess is it's just the Bluetooth HID descriptor c/p over. Because of that, if you enable the controller on Windows by poking that enable interrupt packet with your favorite USB tool, Windows will go crazy trying to interpret the packets it gets. I now have this on-screen controller keyboard I don't know how to get rid of."
+		*/
+		if (NeedsNintendoHandshake(connectedControllers[index].vendorId, connectedControllers[index].productId)) {
+			switch_pro_input_report* switch_report = (switch_pro_input_report*)payload;
+			
+			uint16_t lx = switch_report->left_stick[0] | ((switch_report->left_stick[1] & 0x0F) << 8);
+			uint16_t ly = (switch_report->left_stick[1] >> 4) | (switch_report->left_stick[2] << 4);
+			uint16_t rx = switch_report->right_stick[0] | ((switch_report->right_stick[1] & 0x0F) << 8);
+			uint16_t ry = (switch_report->right_stick[1] >> 4) | (switch_report->right_stick[2] << 4);
+
+			// TODO: read the actual calibration values for normalization
+			buttonReport.x = normalize_stick(lx);
+			buttonReport.y = normalize_stick(ly);
+			buttonReport.z = normalize_stick(rx);
+			buttonReport.rz = normalize_stick(ry);
+
+			uint16_t b1 = switch_report->buttons_right | ((uint16_t)switch_report->buttons_mid << 8);
+			uint8_t  b2 = switch_report->buttons_left;
+
+			buttonReport.a_button = (b1 & SWITCH_BTN_B) ? 1 : 0;
+			buttonReport.b_button = (b1 & SWITCH_BTN_A) ? 1 : 0;
+			buttonReport.x_button = (b1 & SWITCH_BTN_X) ? 1 : 0;
+			buttonReport.y_button = (b1 & SWITCH_BTN_Y) ? 1 : 0;
+			buttonReport.r1 = (b1 & SWITCH_BTN_R) ? 1 : 0;
+			buttonReport.l1 = (b2 & SWITCH_BTN_L) ? 1 : 0;
+			buttonReport.r2 = (b1 & SWITCH_BTN_ZR) ? 1 : 0;
+			buttonReport.l2 = (b2 & SWITCH_BTN_ZL) ? 1 : 0;
+
+			buttonReport.r3 = (b1 & SWITCH_BTN_R_STICK) ? 1 : 0;
+			buttonReport.l3 = (b1 & SWITCH_BTN_L_STICK) ? 1 : 0;
+			buttonReport.start = (b1 & SWITCH_BTN_PLUS) ? 1 : 0;
+			buttonReport.back = (b1 & SWITCH_BTN_MINUS) ? 1 : 0;
+			buttonReport.xbox = (b1 & SWITCH_BTN_HOME) ? 1 : 0;
+
+			buttonReport.has_hat_switch = false;
+			buttonReport.dpad_up = (b2 & SWITCH_DPAD_UP) ? 1 : 0;
+			buttonReport.dpad_down = (b2 & SWITCH_DPAD_DOWN) ? 1 : 0;
+			buttonReport.dpad_left = (b2 & SWITCH_DPAD_LEFT) ? 1 : 0;
+			buttonReport.dpad_right = (b2 & SWITCH_DPAD_RIGHT) ? 1 : 0;
+		}
+
+		else if (connectedControllers[index].map) {
 			HidFillButtonsReport(
 				payload,
 				connectedControllers[index].reportInfo,

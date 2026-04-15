@@ -80,6 +80,14 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
     },
+
+    // switch pro controller(This is a dummy mapping as their HID descriptor is broken)
+    {
+        0x057E, 0x2009,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
 };
 
 std::vector<HidDeviceMapping> g_dynamicMappings;
