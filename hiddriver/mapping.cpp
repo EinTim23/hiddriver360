@@ -21,27 +21,6 @@ static const HidAxisMapEntry kDefaultAxisMap[] = {
     { HID_USAGE_AXIS_RZ, &ButtonsReport::rz },
 };
 
-static const HidButtonMapEntry kDualSenseButtonMapping[] = {
-    { 0,  &ButtonsReport::a_button    },
-    { 1,  &ButtonsReport::b_button   },
-    { 2,  &ButtonsReport::x_button   },
-    { 3,  &ButtonsReport::y_button },
-    { 4,  &ButtonsReport::l1       },
-    { 5,  &ButtonsReport::r1       },
-    { 6,  &ButtonsReport::l2       },
-    { 7,  &ButtonsReport::r2       },
-    { 8,  &ButtonsReport::back     },
-    { 9,  &ButtonsReport::start    },
-    { 10, &ButtonsReport::l3       },
-    { 11, &ButtonsReport::r3       },
-    { 12, &ButtonsReport::xbox     },
-    { 13, &ButtonsReport::dpad_left },
-    { 14, &ButtonsReport::dpad_right },
-    { 15, &ButtonsReport::dpad_up },
-    { 16, &ButtonsReport::dpad_down },
-};
-
-
 static const HidButtonMapEntry kPlayStationButtonMapping[] = {
     { 1,  &ButtonsReport::a_button    },
     { 2,  &ButtonsReport::b_button   },
@@ -56,7 +35,35 @@ static const HidButtonMapEntry kPlayStationButtonMapping[] = {
     { 12, &ButtonsReport::xbox     },
 };
 
+static const HidButtonMapEntry kDualShock3ButtonMapping[] = {
+    { 14,  &ButtonsReport::a_button    },
+    { 13,  &ButtonsReport::b_button   },
+    { 15,  &ButtonsReport::x_button   },
+    { 12,  &ButtonsReport::y_button },
+    { 10,  &ButtonsReport::l1       },
+    { 11,  &ButtonsReport::r1       },
+    { 8,  &ButtonsReport::l2       },
+    { 9,  &ButtonsReport::r2       },
+    { 0,  &ButtonsReport::back     },
+    { 3,  &ButtonsReport::start    },
+    { 1, &ButtonsReport::l3       },
+    { 2, &ButtonsReport::r3       },
+    { 16, &ButtonsReport::xbox     },
+    { 7, &ButtonsReport::dpad_left },
+    { 5, &ButtonsReport::dpad_right },
+    { 4, &ButtonsReport::dpad_up },
+    { 6, &ButtonsReport::dpad_down },
+};
+
+
 static HidDeviceMapping kStaticDeviceMappings[] = {
+    // ds3
+    {   
+        1356, 616,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kDualShock3ButtonMapping, sizeof(kDualShock3ButtonMapping) / sizeof(kDualShock3ButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
     // ds4 v2
     {
         1356, 2508,
