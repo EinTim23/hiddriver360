@@ -18,7 +18,7 @@ Experimental on-console HID driver focussing on providing third party, non xinpu
 - DualSense Edge
 - DualShock 3
 - Nintendo Switch Pro controller
-- Any USB HID compliant controller thanks to built in mapping assistant :)
+- Any USB HID compliant controller thanks to built in mapping assistant :) (this excludes modern xbox controllers like xbox one and xbox series because microsoft made them xinput only)
 
 ## How to use
 1. load plugin (either at runtime or at boot via your launch.ini)
