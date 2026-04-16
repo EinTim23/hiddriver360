@@ -169,6 +169,105 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
     },
+
+    // PS3 Guitar Hero Guitar
+    {
+        0x12ba, 0x0100,
+        XINPUT_DEVSUBTYPE_GUITAR_ALTERNATE, 0,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // PC Guitar Hero WT Guitar
+    {
+        0x1430, 0x474C,
+        XINPUT_DEVSUBTYPE_GUITAR_ALTERNATE, 0,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // PS3 Rock Band Guitar
+    {
+        0x12ba, 0x0200,
+        XINPUT_DEVSUBTYPE_GUITAR, 0,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // Wii Rock Band 1 Guitar
+    {
+        0x1BAD, 0x0004,
+        XINPUT_DEVSUBTYPE_GUITAR, 0,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // Wii Rock Band 2 Guitar
+    {
+        0x1BAD, 0x3010,
+        XINPUT_DEVSUBTYPE_GUITAR, 0,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // PS3 Guitar Hero Drums
+    {
+        0x12BA, 0x0120,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, 0,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // PS3 Rock Band Drums
+    {
+        0x12BA, 0x0120,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x1C,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // Wii Rock Band 1 Drums
+    {
+        0x12BA, 0x0005,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x1C,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // Wii Rock Band 2 Drums
+    {
+        0x12BA, 0x3110,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x1C,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // PS3 Midi Pro Adapter Drums
+    {
+        0x12BA, 0x0218,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x1C,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+
+    // Wii Midi Pro Adapter Drums
+    {
+        0x12BA, 0x3138,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x1C,
+        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
 };
 
 std::vector<HidDeviceMapping> g_dynamicMappings;
