@@ -55,6 +55,12 @@ static const HidButtonMapEntry kDualShock3ButtonMapping[] = {
     { 6, &ButtonsReport::dpad_down },
 };
 
+static HidDeviceMapping kStaticSonyMapping = {
+    1356, 2508,
+    kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
+    kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+    {false, true, false, false, false, true},
+};
 
 static HidDeviceMapping kStaticDeviceMappings[] = {
     // ds3
@@ -125,6 +131,13 @@ HidDeviceMapping* FindStaticMapping(uint16_t vid, uint16_t pid) {
     return nullptr;
 }
 
+
+HidDeviceMapping* FindStaticSonyMapping(uint16_t usage) {
+    if (usage == HID_USAGE_PS3_CAPABILITIES || usage == HID_USAGE_PS4_CAPABILITIES || usage == HID_USAGE_PS5_CAPABILITIES) {
+        return &kStaticSonyMapping;
+    }
+    return nullptr;
+}
 
 HidDeviceMapping* FindMapping(uint16_t vid, uint16_t pid) {
     for (int i = 0; i < g_dynamicMappings.size(); i++) {

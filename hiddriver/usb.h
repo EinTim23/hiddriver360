@@ -48,7 +48,7 @@ struct usb_endpoint_descriptor {
 	uint8_t  bDescriptorType;  // ENDPOINT descriptor type (5)
 	uint8_t  bEndpointAddress; // Endpoint address and direction:
 							   // Bit 7: Direction (0=OUT, 1=IN)
-							   // Bits 3..0: Endpoint number (1–15)
+							   // Bits 3..0: Endpoint number (1ï¿½15)
 	uint8_t  bmAttributes;     // Transfer type:
 							   // Bits 1..0: 00=Control, 01=Isochronous, 10=Bulk, 11=Interrupt
 							   // For Isochronous and Interrupt, additional bits define usage
@@ -73,6 +73,7 @@ enum HatSwitch {
 //USB HID Generic Desktop usage page / usages
 #define HID_USAGE_PAGE_GENERIC_DESKTOP  0x01
 #define HID_USAGE_PAGE_BUTTON           0x09
+#define HID_USAGE_PAGE_VENDOR			0xFF00
 
 #define HID_USAGE_AXIS_X        0x30
 #define HID_USAGE_AXIS_Y        0x31
@@ -83,6 +84,9 @@ enum HatSwitch {
 #define HID_USAGE_HAT_SWITCH    0x39
 #define HID_USAGE_GAMEPAD       0x05
 #define HID_USAGE_JOYSTICK      0x04
+#define HID_USAGE_PS3_CAPABILITIES 0x2621
+#define HID_USAGE_PS4_CAPABILITIES 0x2721
+#define HID_USAGE_PS5_CAPABILITIES 0x2821
 
 #pragma pack(push, 1)
 struct Report {

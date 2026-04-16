@@ -47,6 +47,7 @@ extern std::vector<HidDeviceMapping> g_dynamicMappings;
 extern std::vector<std::unique_ptr<DynamicMappingData>> g_dynamicData;
 
 HidDeviceMapping* FindStaticMapping(uint16_t vid, uint16_t pid);
+HidDeviceMapping* FindStaticSonyMapping(uint16_t usage);
 
 HidDeviceMapping* FindMapping(uint16_t vid, uint16_t pid);
 

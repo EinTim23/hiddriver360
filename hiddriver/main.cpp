@@ -112,6 +112,7 @@ enum InitState
 	INIT_SET_CONFIGURATION,
 	INIT_GET_HID_DESCRIPTOR,
 	INIT_GET_REPORT_DESCRIPTOR,
+	INIT_GET_PS_CAPABILITIES_DESCRIPTOR,
 	INIT_DONE,
 	INIT_FAILED
 };
@@ -224,6 +225,10 @@ enum DS3_FEATURE_VALUE
 
 };
 // dualshock 3 specific end
+enum PS_FEATURE_VALUE
+{
+	PSFeatureCapabilities = 0x0303
+};
 
 typedef usb_device_descriptor* (*usb_device_descriptor_func_t)(deviceHandle* handle);
 typedef usb_interface_descriptor* (*usb_interface_descriptor_func_t)(deviceHandle* handle);
@@ -269,6 +274,9 @@ struct Controller {
 	uint32_t deviceContext;
 	uint16_t vendorId;
 	uint16_t productId;
+	uint16_t sonyUsage;
+	uint8_t subType;
+	uint16_t flags;
 	uint32_t packetNumber;
 	HID_ReportInfo_t* reportInfo;
 	uint8_t reportId;
@@ -296,6 +304,7 @@ struct MappingState {
 Controller connectedControllers[4];
 Controller c;
 usb_hid_descriptor hidDescriptorBuffer;
+uint8_t psFeatureBuffer[48];
 int globalIndex = -1;
 void* reportDescriptorBuffer;
 MappingState g_mappingState;
@@ -304,7 +313,7 @@ int interruptHandler(DWORD deviceHandle, int32_t a2);
 
 // Keep every IN report item; the driver uses all axes, the hat, and buttons.
 bool CALLBACK_HIDParser_FilterHIDReportItem(HID_ReportItem_t* const CurrentItem) {
-	return (CurrentItem->ItemType == HID_REPORT_ITEM_In);
+	return (CurrentItem->ItemType == HID_REPORT_ITEM_In || CurrentItem->ItemType == HID_REPORT_ITEM_Feature);
 }
 
 HID_ReportItem_t* FindItemByUsage(
@@ -348,6 +357,17 @@ uint8_t FindGamepadReportId(HID_ReportInfo_t* info) {
 		uint16_t u = item->Attributes.Usage.Usage;
 		if (u >= HID_USAGE_AXIS_X && u <= HID_USAGE_AXIS_RZ)
 			return item->ReportID;
+	}
+	return 0;
+}
+
+uint16_t FindSonyFeatureReport(HID_ReportInfo_t* info) {
+	for (HID_ReportItem_t* item = info->FirstReportItem; item; item = item->Next) {
+		if (item->Attributes.Usage.Page != HID_USAGE_PAGE_VENDOR)
+			continue;
+		uint16_t u = item->Attributes.Usage.Usage;
+		if (u == HID_USAGE_PS3_CAPABILITIES || u == HID_USAGE_PS4_CAPABILITIES || u == HID_USAGE_PS5_CAPABILITIES)
+			return u;
 	}
 	return 0;
 }
@@ -447,17 +467,68 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 			return -1;
 		}
 
-		DbgPrint("EINTIM: parse done stage 1\r\n");
-		g_InitState = InitState::INIT_DONE;
 
 		c.reportInfo = reportInfo;
 		c.reportId = FindGamepadReportId(reportInfo);
+		c.sonyUsage = FindSonyFeatureReport(reportInfo);
+		if (!c.map) {
+			c.map = FindStaticSonyMapping(c.sonyUsage);
+		}
 
-		DbgPrint("EINTIM: Parsed descriptor. UsingReportIDs: %d, Report ID: %d\r\n",
-			(int)reportInfo->UsingReportIDs, c.reportId);
+		DbgPrint("EINTIM: Parsed descriptor. UsingReportIDs: %d, Report ID: %d, Sony Usage: %04x\r\n",
+			(int)reportInfo->UsingReportIDs, c.reportId, c.sonyUsage);
 
 		free(reportDescriptorBuffer);
 
+		if (c.sonyUsage && c.sonyUsage != 0x2621) {
+			DbgPrint("EINTIM: Sending PS4/5 capabilities request!\r\n");
+			SendControlRequest(controllerDriver->deviceHandle,
+				&controllerDriver->controlTrb,
+				0x21,
+				0x01, 
+				PSFeatureCapabilities, 
+				0, 
+				sizeof(psFeatureBuffer), 
+				(void*)psFeatureBuffer, 
+				(DWORD)setConfigurationComplete);
+			g_InitState = InitState::INIT_GET_PS_CAPABILITIES_DESCRIPTOR;
+		} else {
+			DbgPrint("EINTIM: parse done stage 1\r\n");
+			g_InitState = InitState::INIT_DONE;
+		}
+	} else if (g_InitState == InitState::INIT_GET_PS_CAPABILITIES_DESCRIPTOR) {
+		// parse the PS4/PS5 capabilities request and figure out the subtype
+		switch (psFeatureBuffer[5]) {
+			case 0x00:
+				c.subType = XINPUT_DEVSUBTYPE_GAMEPAD;
+				break;
+			case 0x01:
+				c.subType = XINPUT_DEVSUBTYPE_GUITAR;
+				break;
+			case 0x02:
+				c.subType = XINPUT_DEVSUBTYPE_DRUM_KIT;
+				break;
+			case 0x04:
+				c.subType = XINPUT_DEVSUBTYPE_DANCEPAD;
+				break;
+			case 0x06:
+				c.subType = XINPUT_DEVSUBTYPE_WHEEL;
+				break;
+			case 0x07:
+				c.subType = XINPUT_DEVSUBTYPE_ARCADE_STICK;
+				break;
+			case 0x08:
+				c.subType = XINPUT_DEVSUBTYPE_FLIGHT_STICK;
+				break;
+			default:
+				c.subType = XINPUT_DEVSUBTYPE_GAMEPAD;
+				break;
+		}
+		DbgPrint("EINTIM: parse done stage 1\r\n");
+		g_InitState = InitState::INIT_DONE;
+	}
+
+	if (g_InitState == InitState::INIT_DONE) {
 		usb_endpoint_descriptor* endpoint_descriptor = UsbdGetEndpointDescriptor(
 			controllerDriver->deviceHandle, 0, USB_ENDPOINT_TYPE_INTERRUPT, USB_DIRECTION_IN);
 
@@ -1239,6 +1310,9 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 		c.reportInfo = nullptr;   // will be filled in INIT_GET_REPORT_DESCRIPTOR
 		c.vendorId = vendorId;
 		c.productId = productId;
+		c.sonyUsage = 0;
+		c.subType = XINPUT_DEVSUBTYPE_GAMEPAD;
+		c.flags = 0;
 		c.map = FindMapping(vendorId, productId);
 		c.nintendo_handshake_state = NINTENDO_HANDSHAKE_STATE::INITIAL;
 
@@ -1319,8 +1393,8 @@ DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_C
 			return status;
 
 		capabilities->Type = XINPUT_DEVTYPE_GAMEPAD;
-		capabilities->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
-		capabilities->Flags = 0;
+		capabilities->SubType = c->subType;
+		capabilities->Flags = c->flags;
 
 		XINPUT_STATE state;
 		memset(&state, 0, sizeof(XINPUT_STATE));
