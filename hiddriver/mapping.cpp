@@ -326,7 +326,7 @@ HidDeviceMapping* FindStaticSonyMapping(uint16_t usage, uint8_t psType) {
                 return &m;
         }
     }
-    if (usage == HID_USAGE_PS3_CAPABILITIES) {
+    if (usage) {
         return &kStaticSonyMapping;
     }
     return nullptr;
