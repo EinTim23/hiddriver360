@@ -482,21 +482,22 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 
 		if (c.sonyUsage && c.sonyUsage != 0x2621) {
 			DbgPrint("EINTIM: Sending PS4/5 capabilities request!\r\n");
+			g_InitState = InitState::INIT_GET_PS_CAPABILITIES_DESCRIPTOR;
 			SendControlRequest(controllerDriver->deviceHandle,
 				&controllerDriver->controlTrb,
-				0x21,
+				0xA1,
 				0x01, 
 				PSFeatureCapabilities, 
 				0, 
 				sizeof(psFeatureBuffer), 
 				(void*)psFeatureBuffer, 
 				(DWORD)setConfigurationComplete);
-			g_InitState = InitState::INIT_GET_PS_CAPABILITIES_DESCRIPTOR;
 		} else {
 			DbgPrint("EINTIM: parse done stage 1\r\n");
 			g_InitState = InitState::INIT_DONE;
 		}
 	} else if (g_InitState == InitState::INIT_GET_PS_CAPABILITIES_DESCRIPTOR) {
+		DbgPrint("EINTIM: Got PS4/5 capabilities response %02x!\r\n", psFeatureBuffer[5]);
 		// parse the PS4/PS5 capabilities request and figure out the subtype
 		switch (psFeatureBuffer[5]) {
 			case 0x00:
