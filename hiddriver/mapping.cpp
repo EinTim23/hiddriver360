@@ -1,4 +1,6 @@
 #include "mapping.h"
+#include <xtl.h>
+#include <xkelib.h>
 #include <string.h>
 #include <vector>
 #include <memory>
@@ -13,13 +15,31 @@
 #include <cstdio>
 
 static const HidAxisMapEntry kDefaultAxisMap[] = {
-    { HID_USAGE_AXIS_X,  &ButtonsReport::x  },
-    { HID_USAGE_AXIS_Y,  &ButtonsReport::y  },
-    { HID_USAGE_AXIS_Z,  &ButtonsReport::z  },
-    { HID_USAGE_AXIS_RX, &ButtonsReport::rx },
-    { HID_USAGE_AXIS_RY, &ButtonsReport::ry },
-    { HID_USAGE_AXIS_RZ, &ButtonsReport::rz },
+    { HID_USAGE_AXIS_X,  0, &ButtonsReport::x  },
+    { HID_USAGE_AXIS_Y,  0, &ButtonsReport::y  },
+    { HID_USAGE_AXIS_Z,  0, &ButtonsReport::z  },
+    { HID_USAGE_AXIS_RX, 0, &ButtonsReport::rx },
+    { HID_USAGE_AXIS_RY, 0, &ButtonsReport::ry },
+    { HID_USAGE_AXIS_RZ, 0, &ButtonsReport::rz },
 };
+
+static const HidAxisMapEntry kPs4GuitarAxisMap[] = {
+    { HID_USAGE_AXIS_X, 0, &ButtonsReport::x  },
+    { HID_USAGE_AXIS_Y,  0, &ButtonsReport::y  },
+    { 0,  HID_OFFSET_PS4_WHAMMY, &ButtonsReport::z  },
+    { HID_USAGE_AXIS_RX, 0, &ButtonsReport::rx },
+    { HID_USAGE_AXIS_RY, 0, &ButtonsReport::ry },
+    { 0, HID_OFFSET_PS4_TILT, &ButtonsReport::rz },
+};
+static const HidAxisMapEntry kPs5GuitarAxisMap[] = {
+    { HID_USAGE_AXIS_X, 0, &ButtonsReport::x  },
+    { HID_USAGE_AXIS_Y,  0, &ButtonsReport::y  },
+    { 0,  HID_OFFSET_PS5_WHAMMY, &ButtonsReport::z  },
+    { HID_USAGE_AXIS_RX, 0, &ButtonsReport::rx },
+    { HID_USAGE_AXIS_RY, 0, &ButtonsReport::ry },
+    { 0, HID_OFFSET_PS5_TILT, &ButtonsReport::rz },
+};
+
 
 static const HidButtonMapEntry kPlayStationButtonMapping[] = {
     { 1,  &ButtonsReport::a_button    },
@@ -57,15 +77,41 @@ static const HidButtonMapEntry kDualShock3ButtonMapping[] = {
 
 static HidDeviceMapping kStaticSonyMapping = {
     1356, 2508,
+    XINPUT_DEVSUBTYPE_GAMEPAD, 0,
     kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
     kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
     {false, true, false, false, false, true},
+};
+
+
+static HidDeviceMapping kStaticPs4Mappings[] = {
+    // guitar
+    {   
+        0, 0,
+        XINPUT_DEVSUBTYPE_GUITAR, 0,
+        kPs4GuitarAxisMap,  sizeof(kPs4GuitarAxisMap) / sizeof(kPs4GuitarAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
+};
+
+
+static HidDeviceMapping kStaticPs5Mappings[] = {
+    // guitar
+    {   
+        0, 0,
+        XINPUT_DEVSUBTYPE_GUITAR, 0,
+        kPs5GuitarAxisMap,  sizeof(kPs5GuitarAxisMap) / sizeof(kPs5GuitarAxisMap[0]),
+        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        {false, true, false, false, false, true},
+    },
 };
 
 static HidDeviceMapping kStaticDeviceMappings[] = {
     // ds3
     {   
         1356, 616,
+        XINPUT_DEVSUBTYPE_GAMEPAD, 0,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kDualShock3ButtonMapping, sizeof(kDualShock3ButtonMapping) / sizeof(kDualShock3ButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -73,6 +119,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // ds4 v2
     {
         1356, 2508,
+        XINPUT_DEVSUBTYPE_GAMEPAD, 0,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -81,6 +128,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // ds4 v1
     {
         1356, 1476,
+        XINPUT_DEVSUBTYPE_GAMEPAD, 0,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -89,6 +137,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // ds4 wireless adapter
    {
        1356, 0x0BA0,
+       XINPUT_DEVSUBTYPE_GAMEPAD, 0,
        kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
        {false, true, false, false, false, true},
@@ -97,6 +146,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // dualsense
     {
         1356, 3302,
+        XINPUT_DEVSUBTYPE_GAMEPAD, 0,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -105,6 +155,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // dualsense edge
     {
         1356, 0x0DF2,
+        XINPUT_DEVSUBTYPE_GAMEPAD, 0,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -113,6 +164,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // switch pro controller(This is a dummy mapping as their HID descriptor is broken)
     {
         0x057E, 0x2009,
+        XINPUT_DEVSUBTYPE_GAMEPAD, 0,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -132,8 +184,50 @@ HidDeviceMapping* FindStaticMapping(uint16_t vid, uint16_t pid) {
 }
 
 
-HidDeviceMapping* FindStaticSonyMapping(uint16_t usage) {
-    if (usage == HID_USAGE_PS3_CAPABILITIES || usage == HID_USAGE_PS4_CAPABILITIES || usage == HID_USAGE_PS5_CAPABILITIES) {
+HidDeviceMapping* FindStaticSonyMapping(uint16_t usage, uint8_t psType) {
+    uint8_t subType;
+    // parse the PS4/PS5 capabilities request and figure out the subtype
+    switch (psType) {
+        case 0x00:
+            subType = XINPUT_DEVSUBTYPE_GAMEPAD;
+            break;
+        case 0x01:
+            subType = XINPUT_DEVSUBTYPE_GUITAR;
+            break;
+        case 0x02:
+            subType = XINPUT_DEVSUBTYPE_DRUM_KIT;
+            break;
+        case 0x04:
+            subType = XINPUT_DEVSUBTYPE_DANCEPAD;
+            break;
+        case 0x06:
+            subType = XINPUT_DEVSUBTYPE_WHEEL;
+            break;
+        case 0x07:
+            subType = XINPUT_DEVSUBTYPE_ARCADE_STICK;
+            break;
+        case 0x08:
+            subType = XINPUT_DEVSUBTYPE_FLIGHT_STICK;
+            break;
+        default:
+            subType = XINPUT_DEVSUBTYPE_GAMEPAD;
+            break;
+    }
+    if (usage == HID_USAGE_PS5_CAPABILITIES) {
+        for (size_t i = 0; i < sizeof(kStaticPs5Mappings) / sizeof(kStaticPs5Mappings[0]); i++) {
+            auto& m = kStaticPs5Mappings[i];
+            if (m.subType == subType)
+                return &m;
+        }
+    }
+    if (usage == HID_USAGE_PS4_CAPABILITIES) {
+        for (size_t i = 0; i < sizeof(kStaticPs4Mappings) / sizeof(kStaticPs4Mappings[0]); i++) {
+            auto& m = kStaticPs4Mappings[i];
+            if (m.subType == subType)
+                return &m;
+        }
+    }
+    if (usage == HID_USAGE_PS3_CAPABILITIES) {
         return &kStaticSonyMapping;
     }
     return nullptr;

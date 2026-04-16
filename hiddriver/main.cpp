@@ -275,8 +275,6 @@ struct Controller {
 	uint16_t vendorId;
 	uint16_t productId;
 	uint16_t sonyUsage;
-	uint8_t subType;
-	uint16_t flags;
 	uint32_t packetNumber;
 	HID_ReportInfo_t* reportInfo;
 	uint8_t reportId;
@@ -471,9 +469,6 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 		c.reportInfo = reportInfo;
 		c.reportId = FindGamepadReportId(reportInfo);
 		c.sonyUsage = FindSonyFeatureReport(reportInfo);
-		if (!c.map) {
-			c.map = FindStaticSonyMapping(c.sonyUsage);
-		}
 
 		DbgPrint("EINTIM: Parsed descriptor. UsingReportIDs: %d, Report ID: %d, Sony Usage: %04x\r\n",
 			(int)reportInfo->UsingReportIDs, c.reportId, c.sonyUsage);
@@ -498,32 +493,8 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 		}
 	} else if (g_InitState == InitState::INIT_GET_PS_CAPABILITIES_DESCRIPTOR) {
 		DbgPrint("EINTIM: Got PS4/5 capabilities response %02x!\r\n", psFeatureBuffer[5]);
-		// parse the PS4/PS5 capabilities request and figure out the subtype
-		switch (psFeatureBuffer[5]) {
-			case 0x00:
-				c.subType = XINPUT_DEVSUBTYPE_GAMEPAD;
-				break;
-			case 0x01:
-				c.subType = XINPUT_DEVSUBTYPE_GUITAR;
-				break;
-			case 0x02:
-				c.subType = XINPUT_DEVSUBTYPE_DRUM_KIT;
-				break;
-			case 0x04:
-				c.subType = XINPUT_DEVSUBTYPE_DANCEPAD;
-				break;
-			case 0x06:
-				c.subType = XINPUT_DEVSUBTYPE_WHEEL;
-				break;
-			case 0x07:
-				c.subType = XINPUT_DEVSUBTYPE_ARCADE_STICK;
-				break;
-			case 0x08:
-				c.subType = XINPUT_DEVSUBTYPE_FLIGHT_STICK;
-				break;
-			default:
-				c.subType = XINPUT_DEVSUBTYPE_GAMEPAD;
-				break;
+		if (!c.map) {
+			c.map = FindStaticSonyMapping(c.sonyUsage, psFeatureBuffer[5]);
 		}
 		DbgPrint("EINTIM: parse done stage 1\r\n");
 		g_InitState = InitState::INIT_DONE;
@@ -672,61 +643,65 @@ void HidFillButtonsReport(
 	for (uint8_t i = 0; i < axisCount; i++) {
 		const auto& entry = axisMap[i];
 
-		HID_ReportItem_t* item = FindItemByUsage(
-			info,
-			HID_USAGE_PAGE_GENERIC_DESKTOP,
-			entry.usage,
-			reportId
-		);
+		if (entry.raw) {
+			out->*entry.field = ((int32_t)payload[entry.raw] << 8) - 32767;
+		} else {
+			HID_ReportItem_t* item = FindItemByUsage(
+				info,
+				HID_USAGE_PAGE_GENERIC_DESKTOP,
+				entry.usage,
+				reportId
+			);
 
-		if (!item || !USB_GetHIDReportItemInfo(reportId, payload, item))
-			continue;
+			if (!item || !USB_GetHIDReportItemInfo(reportId, payload, item))
+				continue;
 
-		int32_t logMin = (int32_t)item->Attributes.Logical.Minimum;
-		int32_t logMax = (int32_t)item->Attributes.Logical.Maximum;
-		int32_t raw = (int32_t)item->Value;
+			int32_t logMin = (int32_t)item->Attributes.Logical.Minimum;
+			int32_t logMax = (int32_t)item->Attributes.Logical.Maximum;
+			int32_t raw = (int32_t)item->Value;
 
-		int32_t result = 0;
+			int32_t result = 0;
 
-		if (logMax > logMin) {
-			if (raw < logMin) raw = logMin;
-			if (raw > logMax) raw = logMax;
+			if (logMax > logMin) {
+				if (raw < logMin) raw = logMin;
+				if (raw > logMax) raw = logMax;
 
-			int64_t numerator = (int64_t)(raw - logMin) * 65535;
-			int32_t denominator = (logMax - logMin);
+				int64_t numerator = (int64_t)(raw - logMin) * 65535;
+				int32_t denominator = (logMax - logMin);
 
-			int32_t scaled = (int32_t)((numerator + denominator / 2) / denominator);
-			result = scaled - 32768;
+				int32_t scaled = (int32_t)((numerator + denominator / 2) / denominator);
+				result = scaled - 32768;
+			}
+			else {
+				result = raw;
+			}
+
+			// apply inversion
+			switch (entry.usage) {
+			case HID_USAGE_AXIS_X:
+				if (map->invert.invertX) result = -result;
+				break;
+			case HID_USAGE_AXIS_Y:
+				if (map->invert.invertY) result = -result;
+				break;
+			case HID_USAGE_AXIS_Z:
+				if (map->invert.invertZ) result = -result;
+				break;
+			case HID_USAGE_AXIS_RX:
+				if (map->invert.invertRX) result = -result;
+				break;
+			case HID_USAGE_AXIS_RY:
+				if (map->invert.invertRY) result = -result;
+				break;
+			case HID_USAGE_AXIS_RZ:
+				if (map->invert.invertRZ) result = -result;
+				break;
+			}
+
+			if (result > 32767) result = 32767; if (result < -32768) result = -32768;
+
+			out->*entry.field = (int16_t)result;
 		}
-		else {
-			result = raw;
-		}
-
-		// apply inversion
-		switch (entry.usage) {
-		case HID_USAGE_AXIS_X:
-			if (map->invert.invertX) result = -result;
-			break;
-		case HID_USAGE_AXIS_Y:
-			if (map->invert.invertY) result = -result;
-			break;
-		case HID_USAGE_AXIS_Z:
-			if (map->invert.invertZ) result = -result;
-			break;
-		case HID_USAGE_AXIS_RX:
-			if (map->invert.invertRX) result = -result;
-			break;
-		case HID_USAGE_AXIS_RY:
-			if (map->invert.invertRY) result = -result;
-			break;
-		case HID_USAGE_AXIS_RZ:
-			if (map->invert.invertRZ) result = -result;
-			break;
-		}
-
-		if (result > 32767) result = 32767; if (result < -32768) result = -32768;
-
-		out->*entry.field = (int16_t)result;
 	}
 
 	// Hat switch
@@ -978,26 +953,32 @@ unsigned int __stdcall MappingThreadProc(void* param) {
 
 	entry.usage = HID_USAGE_AXIS_X;
 	entry.field = &ButtonsReport::x;
+	entry.raw = 0;
 	mappedAxes.push_back(entry);
 
 	entry.usage = HID_USAGE_AXIS_Y;
 	entry.field = &ButtonsReport::y;
+	entry.raw = 0;
 	mappedAxes.push_back(entry);
 
 	entry.usage = HID_USAGE_AXIS_Z;
 	entry.field = &ButtonsReport::z;
+	entry.raw = 0;
 	mappedAxes.push_back(entry);
 
 	entry.usage = HID_USAGE_AXIS_RX;
 	entry.field = &ButtonsReport::rx;
+	entry.raw = 0;
 	mappedAxes.push_back(entry);
 
 	entry.usage = HID_USAGE_AXIS_RY;
 	entry.field = &ButtonsReport::ry;
+	entry.raw = 0;
 	mappedAxes.push_back(entry);
 
 	entry.usage = HID_USAGE_AXIS_RZ;
 	entry.field = &ButtonsReport::rz;
+	entry.raw = 0;
 	mappedAxes.push_back(entry);
 
 	// Build dynamic mapping
@@ -1312,8 +1293,6 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 		c.vendorId = vendorId;
 		c.productId = productId;
 		c.sonyUsage = 0;
-		c.subType = XINPUT_DEVSUBTYPE_GAMEPAD;
-		c.flags = 0;
 		c.map = FindMapping(vendorId, productId);
 		c.nintendo_handshake_state = NINTENDO_HANDSHAKE_STATE::INITIAL;
 
@@ -1394,8 +1373,8 @@ DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_C
 			return status;
 
 		capabilities->Type = XINPUT_DEVTYPE_GAMEPAD;
-		capabilities->SubType = c->subType;
-		capabilities->Flags = c->flags;
+		capabilities->SubType = c->map->subType;
+		capabilities->Flags = c->map->flags;
 
 		XINPUT_STATE state;
 		memset(&state, 0, sizeof(XINPUT_STATE));
