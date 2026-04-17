@@ -125,7 +125,7 @@ static HidDeviceMapping kStaticPs4Mappings[] = {
     },
     {   
         0, 0,
-        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, XINPUT_CAPS_FFB_SUPPORTED,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -143,7 +143,7 @@ static HidDeviceMapping kStaticPs5Mappings[] = {
     },
     {   
         0, 0,
-        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, XINPUT_CAPS_FFB_SUPPORTED,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -270,7 +270,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // PS3 Rock Band Drums
     {
         0x12BA, 0x0120,
-        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, XINPUT_CAPS_FFB_SUPPORTED,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -279,7 +279,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // Wii Rock Band 1 Drums
     {
         0x12BA, 0x0005,
-        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, XINPUT_CAPS_FFB_SUPPORTED,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -288,7 +288,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // Wii Rock Band 2 Drums
     {
         0x12BA, 0x3110,
-        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, XINPUT_CAPS_FFB_SUPPORTED,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -297,7 +297,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // PS3 Midi Pro Adapter Drums
     {
         0x12BA, 0x0218,
-        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, XINPUT_CAPS_FFB_SUPPORTED,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
@@ -306,7 +306,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     // Wii Midi Pro Adapter Drums
     {
         0x12BA, 0x3138,
-        XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
+        XINPUT_DEVSUBTYPE_DRUM_KIT, XINPUT_CAPS_FFB_SUPPORTED,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
         kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
