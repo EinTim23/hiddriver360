@@ -635,6 +635,7 @@ void HidFillButtonsReport(
 	HID_ReportInfo_t* info,
 	ButtonsReport* out,
 	uint8_t reportId,
+	uint16_t sonyUsage,
 	const HidDeviceMapping* map) {
 	// Axes
 	const auto* axisMap = map->axisMap;
@@ -722,6 +723,48 @@ void HidFillButtonsReport(
 		HID_ReportItem_t* item = FindButtonItem(info, entry.idx, reportId);
 		if (item && USB_GetHIDReportItemInfo(reportId, payload, item)) {
 			out->*entry.field = (uint8_t)item->Value;
+		}
+	}
+	
+	if (sonyUsage && map->subType == XINPUT_DEVSUBTYPE_DRUM_KIT) {
+		uint8_t offset = 0;
+		if (sonyUsage == HID_USAGE_PS4_CAPABILITIES) {
+			offset = PS_RAW_EXTENDED_DATA_PS4;
+		}
+		if (sonyUsage == HID_USAGE_PS5_CAPABILITIES) {
+			offset = PS_RAW_EXTENDED_DATA_PS5;
+		}
+		if (offset) {
+			if (payload[offset+PS_EXTENDED_OFFSET_RED_PAD]) {
+				out->b_button = true;
+				out->r3 = true;
+			}
+			if (payload[offset+PS_EXTENDED_OFFSET_YELLOW_PAD]) {
+				out->y_button = true;
+				out->r3 = true;
+			}
+			if (payload[offset+PS_EXTENDED_OFFSET_BLUE_PAD]) {
+				out->x_button = true;
+				out->r3 = true;
+			}
+			if (payload[offset+PS_EXTENDED_OFFSET_GREEN_PAD]) {
+				out->a_button = true;
+				out->r3 = true;
+			}
+			if (payload[offset+PS_EXTENDED_OFFSET_YELLOW_CYM]) {
+				out->y_button = true;
+				out->dpad_up = true;
+				out->l1 = true;
+			}
+			if (payload[offset+PS_EXTENDED_OFFSET_BLUE_CYM]) {
+				out->x_button = true;
+				out->dpad_down = true;
+				out->l1 = true;
+			}
+			if (payload[offset+PS_EXTENDED_OFFSET_GREEN_CYM]) {
+				out->a_button = true;
+				out->l1 = true;
+			}
 		}
 	}
 }
@@ -1146,6 +1189,7 @@ int interruptHandler(DWORD deviceHandle, int32_t a2) {
 				connectedControllers[index].reportInfo,
 				&buttonReport,
 				connectedControllers[index].reportId,
+				connectedControllers[index].sonyUsage,
 				connectedControllers[index].map);
 		}
 		else if (g_mappingState.active && g_mappingState.controllerIndex == index) {
@@ -1457,16 +1501,15 @@ NTSTATUS XInputdReadStateHook(DWORD dwDeviceContext, PDWORD pdwPacketNumber, PXI
 				break;
 			}
 		}
-		else {
-			if(b.dpad_left)
-				pInputData->wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
-			if(b.dpad_right)
-				pInputData->wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
-			if(b.dpad_up)
-				pInputData->wButtons |= XINPUT_GAMEPAD_DPAD_UP;
-			if(b.dpad_down)
-				pInputData->wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
-		}
+		
+		if(b.dpad_left)
+			pInputData->wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
+		if(b.dpad_right)
+			pInputData->wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
+		if(b.dpad_up)
+			pInputData->wButtons |= XINPUT_GAMEPAD_DPAD_UP;
+		if(b.dpad_down)
+			pInputData->wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
 		
 		pInputData->sThumbRX = b.z;
 		pInputData->sThumbRY = b.rz;
