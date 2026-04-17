@@ -726,7 +726,8 @@ void HidFillButtonsReport(
 		}
 	}
 	
-	if (sonyUsage && map->subType == XINPUT_DEVSUBTYPE_DRUM_KIT) {
+	// PS4 RB drums need to map axis to button combinations, so its easier to do that by hand here
+	if (sonyUsage) {
 		uint8_t offset = 0;
 		if (sonyUsage == HID_USAGE_PS4_CAPABILITIES) {
 			offset = PS_RAW_EXTENDED_DATA_PS4;

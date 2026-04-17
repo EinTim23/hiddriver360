@@ -54,6 +54,38 @@ static const HidButtonMapEntry kPlayStationButtonMapping[] = {
     { 12, &ButtonsReport::xbox     },
 };
 
+// PS3 uses L3 (10) as pad flag, 360 uses R3
+// PS3 uses R3 (11) as cymbal flag, 360 uses r1
+// PS3 uses R1 (5) as kick 2, 360 uses L3
+static const HidButtonMapEntry kPlayStationRBDrumButtonMapping[] = {
+    { 1,  &ButtonsReport::a_button    },
+    { 2,  &ButtonsReport::b_button   },
+    { 0,  &ButtonsReport::x_button   },
+    { 3,  &ButtonsReport::y_button },
+    { 4,  &ButtonsReport::l1       },
+    { 11,  &ButtonsReport::r1       },
+    { 8,  &ButtonsReport::back     },
+    { 9,  &ButtonsReport::start    },
+    { 5, &ButtonsReport::l3       },
+    { 10, &ButtonsReport::r3       },
+    { 12, &ButtonsReport::xbox     },
+};
+
+// GH PS3 guitars swapped x and y
+static const HidButtonMapEntry kPlayStationGHGuitarButtonMapping[] = {
+    { 1,  &ButtonsReport::a_button    },
+    { 2,  &ButtonsReport::b_button   },
+    { 3,  &ButtonsReport::x_button   },
+    { 0,  &ButtonsReport::y_button },
+    { 4,  &ButtonsReport::l1       },
+    { 5,  &ButtonsReport::r1       },
+    { 8,  &ButtonsReport::back     },
+    { 9,  &ButtonsReport::start    },
+    { 10, &ButtonsReport::l3       },
+    { 11, &ButtonsReport::r3       },
+    { 12, &ButtonsReport::xbox     },
+};
+
 static const HidButtonMapEntry kDualShock3ButtonMapping[] = {
     { 14,  &ButtonsReport::a_button    },
     { 13,  &ButtonsReport::b_button   },
@@ -186,7 +218,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         0x12ba, 0x0100,
         XINPUT_DEVSUBTYPE_GUITAR_ALTERNATE, 0,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
-        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        kPlayStationGHGuitarButtonMapping, sizeof(kPlayStationGHGuitarButtonMapping) / sizeof(kPlayStationGHGuitarButtonMapping[0]),
         {false, true, false, false, false, true},
     },
 
@@ -195,7 +227,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         0x1430, 0x474C,
         XINPUT_DEVSUBTYPE_GUITAR_ALTERNATE, 0,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
-        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        kPlayStationGHGuitarButtonMapping, sizeof(kPlayStationGHGuitarButtonMapping) / sizeof(kPlayStationGHGuitarButtonMapping[0]),
         {false, true, false, false, false, true},
     },
 
@@ -240,7 +272,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         0x12BA, 0x0120,
         XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
-        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
     },
 
@@ -249,7 +281,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         0x12BA, 0x0005,
         XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
-        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
     },
 
@@ -258,7 +290,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         0x12BA, 0x3110,
         XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
-        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
     },
 
@@ -267,7 +299,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         0x12BA, 0x0218,
         XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
-        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
     },
 
@@ -276,7 +308,7 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
         0x12BA, 0x3138,
         XINPUT_DEVSUBTYPE_DRUM_KIT, 0x000D,
         kDefaultAxisMap,  sizeof(kDefaultAxisMap) / sizeof(kDefaultAxisMap[0]),
-        kPlayStationButtonMapping, sizeof(kPlayStationButtonMapping) / sizeof(kPlayStationButtonMapping[0]),
+        kPlayStationRBDrumButtonMapping, sizeof(kPlayStationRBDrumButtonMapping) / sizeof(kPlayStationRBDrumButtonMapping[0]),
         {false, true, false, false, false, true},
     },
 };
