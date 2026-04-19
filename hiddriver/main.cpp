@@ -1438,6 +1438,7 @@ void* XInputdReadStatePtr = nullptr;
 uint16_t* XNotifyTimerPtr = nullptr;
 bool isDevkit = true;
 DWORD UsbPhysicalPage = 0;
+void* NotificationPatchPtr = nullptr;
 bool initFunctionPointers() {
 	isDevkit = *(uint32_t*)(0x8010D334) == 0x00000000;
 	HANDLE kernelHandle = GetModuleHandleA("xboxkrnl.exe");
@@ -1464,6 +1465,7 @@ bool initFunctionPointers() {
 
 	XexGetProcedureAddress(xamHandle, 685, &XamInputGetCapabilitiesEx);
 	XexGetProcedureAddress(xamHandle, 402, &XamInputSetState);
+	XexGetProcedureAddress(xamHandle, 1183, &NotificationPatchPtr);
 
 	if (isDevkit) {
 		DbgPrint("EINTIM: Running in devkit mode\n");
@@ -1513,6 +1515,12 @@ bool initFunctionPointers() {
 	}
 
 	*XNotifyTimerPtr = 1500;
+
+	// Patches notification handling to work without JRPC2, Thanks crow!
+	if (*(short*)((uintptr_t)(NotificationPatchPtr) + 48) == 0x409A) {
+		*(short*)((uintptr_t)(NotificationPatchPtr) + 48) = 0x4800;
+	}
+
 	return true;
 }
 
