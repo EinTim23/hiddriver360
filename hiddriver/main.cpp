@@ -153,8 +153,8 @@ struct switch_pro_input_report {
 
 // buttons1
 // Face buttons
-#define SWITCH_BTN_Y        (1 << 0)
-#define SWITCH_BTN_X        (1 << 1)
+#define SWITCH_BTN_Y        (1 << 1)
+#define SWITCH_BTN_X        (1 << 0)
 #define SWITCH_BTN_B        (1 << 2)
 #define SWITCH_BTN_A        (1 << 3)
 
