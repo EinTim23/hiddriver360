@@ -53,6 +53,20 @@ static const HidButtonMapEntry kPlayStationButtonMapping[] = {
     { 11, &ButtonsReport::r3       },
     { 12, &ButtonsReport::xbox     },
 };
+// GH drums need to always hold down L3
+static const HidButtonMapEntry kPlayStationGHDrumButtonMapping[] = {
+    { 1,  &ButtonsReport::a_button    },
+    { 2,  &ButtonsReport::b_button   },
+    { 0,  &ButtonsReport::x_button   },
+    { 3,  &ButtonsReport::y_button },
+    { 4,  &ButtonsReport::l1       },
+    { 5,  &ButtonsReport::r1       },
+    { 8,  &ButtonsReport::back     },
+    { 9,  &ButtonsReport::start    },
+    { 255, &ButtonsReport::l3       },
+    { 11, &ButtonsReport::r3       },
+    { 12, &ButtonsReport::xbox     },
+};
 
 // PS3 uses L3 (10) as pad flag, 360 uses R3
 // PS3 uses R3 (11) as cymbal flag, 360 uses r1
