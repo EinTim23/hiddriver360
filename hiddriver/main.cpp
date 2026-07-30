@@ -73,7 +73,8 @@ struct __declspec(align(2)) HidControllerExtension
 {
 	deviceHandle* deviceHandle;
 	UsbTrb interruptTrb;
-	BYTE gap20[4];
+	BYTE interfaceNumber;
+	BYTE gap20[3];
 	UsbControlTrb controlTrb;
 	BYTE gap4C[4];
 	DWORD cleanupHandler;
@@ -110,7 +111,6 @@ typedef struct _XINPUT_CAPABILITIESEX
 enum InitState
 {
 	INIT_SET_CONFIGURATION,
-	INIT_GET_HID_DESCRIPTOR,
 	INIT_GET_REPORT_DESCRIPTOR,
 	INIT_DONE,
 	INIT_FAILED
@@ -395,50 +395,59 @@ int32_t noopCompleteHandler(DWORD deviceHandle, int32_t status) {
 
 int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 	HidControllerExtension* controllerDriver = (HidControllerExtension*)((BYTE*)deviceHandle - 36);
-	DbgPrint("EINTIM: Control transfer completed.\n");
+
+	if (status != 0) {
+		DbgPrint("EINTIM: Control transfer failed with status %x!\n", status);
+		g_InitState = INIT_FAILED;
+		return status;
+	}
 
 	if (g_InitState == InitState::INIT_SET_CONFIGURATION) {
-		g_InitState = InitState::INIT_GET_HID_DESCRIPTOR;
-		DbgPrint("EINTIM: Init Stage 1. SET_CONFIGURATION completed successfully\r\n");
-		SendControlRequest(
-			controllerDriver->deviceHandle,
-			&controllerDriver->controlTrb,
-			0x81,
-			0x06,
-			0x2100,
-			0x0000,
-			sizeof(usb_hid_descriptor),
-			&hidDescriptorBuffer,
-			(DWORD)setConfigurationComplete);
-	}
-	else if (g_InitState == InitState::INIT_GET_HID_DESCRIPTOR) {
+		// SET_CONFIGURATION just completed, now fetch the report descriptor
+		DbgPrint("EINTIM: SET_CONFIGURATION completed. Requesting report descriptor.\n");
+		
+		// Prepare report descriptor buffer
 		hidDescriptorBuffer.wDescriptorLength = swap_endianness_16(hidDescriptorBuffer.wDescriptorLength);
-		DbgPrint("EINTIM: Init Stage 2. Get hid descriptor: %x:%x completed successfully\r\n",
-			hidDescriptorBuffer.bLength, hidDescriptorBuffer.wDescriptorLength);
-		g_InitState = InitState::INIT_GET_REPORT_DESCRIPTOR;
+		DbgPrint("EINTIM: Report descriptor length: %d\n", hidDescriptorBuffer.wDescriptorLength);
+		
+		if (hidDescriptorBuffer.wDescriptorLength == 0) {
+			DbgPrint("EINTIM: ERROR - HID descriptor length is 0!\n");
+			g_InitState = INIT_FAILED;
+			return -1;
+		}
 
 		reportDescriptorBuffer = calloc(1, hidDescriptorBuffer.wDescriptorLength);
 
+		g_InitState = InitState::INIT_GET_REPORT_DESCRIPTOR;
+		DbgPrint("EINTIM: Fetching report descriptor. Interface: %d, Length: %d\n",
+			controllerDriver->interfaceNumber, hidDescriptorBuffer.wDescriptorLength);
+		
 		SendControlRequest(
 			controllerDriver->deviceHandle,
 			&controllerDriver->controlTrb,
 			0x81,
 			0x06,
 			0x2200,
-			0x0000,
+			controllerDriver->interfaceNumber,
 			hidDescriptorBuffer.wDescriptorLength,
 			reportDescriptorBuffer,
 			(DWORD)setConfigurationComplete);
 	}
 	else if (g_InitState == InitState::INIT_GET_REPORT_DESCRIPTOR) {
-		DbgPrint("EINTIM: Init Stage 3. INIT_GET_REPORT_DESCRIPTOR completed successfully %x\r\n",
-			*(DWORD*)reportDescriptorBuffer);
+		// Report descriptor request completed
+		DbgPrint("EINTIM: Report descriptor request completed successfully\n");
+		g_InitState = InitState::INIT_DONE;
 
-		// Parse HID descriptor
 		HID_ReportInfo_t* reportInfo = nullptr;
 		uint8_t parseResult = USB_ProcessHIDReport((const uint8_t*)reportDescriptorBuffer,
 			hidDescriptorBuffer.wDescriptorLength,
 			&reportInfo);
+
+		c.reportInfo = reportInfo;
+		c.reportId = FindGamepadReportId(reportInfo);
+
+		DbgPrint("EINTIM: Parsed descriptor. UsingReportIDs: %d, Report ID: %d\r\n",
+			(int)reportInfo->UsingReportIDs, c.reportId);
 
 		if (parseResult != HID_PARSE_Successful || !reportInfo) {
 			DbgPrint("EINTIM: Failed to parse HID descriptor: error %d\r\n", parseResult);
@@ -1218,6 +1227,19 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 		interface_descriptor->bInterfaceSubClass == 0 &&
 		interface_descriptor->bInterfaceProtocol == 0) {
 		DbgPrint("EINTIM: Controller detected. Initialising custom handler.\n");
+		
+		// Extract HID descriptor from memory right after interface descriptor
+		BYTE* hid_descriptor_ptr = ((BYTE*)interface_descriptor) + interface_descriptor->bLength;
+		usb_hid_descriptor* hid_descriptor = (usb_hid_descriptor*)hid_descriptor_ptr;
+		
+		DbgPrint("EINTIM: Found HID descriptor at offset %d: type=%02x, length=%d\n",
+			interface_descriptor->bLength, hid_descriptor->bDescriptorType, hid_descriptor->wDescriptorLength);
+		
+		if (hid_descriptor->bDescriptorType != 0x21) {
+			DbgPrint("EINTIM: ERROR - Invalid HID descriptor type %02x!\n", hid_descriptor->bDescriptorType);
+			return HidAddDeviceDetour.GetOriginal<decltype(&HidAddDeviceHook)>()(deviceHandle);
+		}
+		
 		int index = -1;
 		for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
 			if (!connectedControllers[i].controllerDriver) {
@@ -1247,7 +1269,13 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 		controllerDriver->deviceType = 0;
 		deviceHandle->driver = controllerDriver;
 		controllerDriver->deviceHandle = deviceHandle;
+		controllerDriver->interfaceNumber = interface_descriptor->bInterfaceNumber;
+		DbgPrint("EINTIM: Storing interface number: %d\n", controllerDriver->interfaceNumber);
 		controllerDriver->interruptTrb.flags = 1;
+
+		// Copy HID descriptor to global buffer for later use
+		memcpy(&hidDescriptorBuffer, hid_descriptor, sizeof(usb_hid_descriptor));
+		DbgPrint("EINTIM: Copied HID descriptor. wDescriptorLength: %d\n", hidDescriptorBuffer.wDescriptorLength);
 
 		UsbdAddDeviceComplete(deviceHandle, 0);
 
@@ -1257,7 +1285,9 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 			return status;
 		}
 
+		// Set device configuration (required for proper USB enumeration)
 		g_InitState = InitState::INIT_SET_CONFIGURATION;
+		DbgPrint("EINTIM: Sending SET_CONFIGURATION\n");
 		SendControlRequest(
 			controllerDriver->deviceHandle,
 			&controllerDriver->controlTrb,
