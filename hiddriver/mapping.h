@@ -8,6 +8,7 @@
 
 struct HidAxisMapEntry {
     uint16_t usage;
+    uint16_t raw;
     int16_t ButtonsReport::* field;
 };
 
@@ -29,6 +30,9 @@ struct HidDeviceMapping {
     uint16_t vendorId;
     uint16_t productId;
 
+    uint8_t subType;
+    uint16_t flags;
+
     const HidAxisMapEntry* axisMap;
     uint8_t axisMapCount;
 
@@ -47,6 +51,7 @@ extern std::vector<HidDeviceMapping> g_dynamicMappings;
 extern std::vector<std::unique_ptr<DynamicMappingData>> g_dynamicData;
 
 HidDeviceMapping* FindStaticMapping(uint16_t vid, uint16_t pid);
+HidDeviceMapping* FindStaticSonyMapping(uint16_t usage, uint8_t subType);
 
 HidDeviceMapping* FindMapping(uint16_t vid, uint16_t pid);
 
