@@ -117,6 +117,15 @@ enum InitState
 };
 
 InitState g_InitState;
+
+// The HID init sequence below keeps its state in globals (c, globalIndex,
+// g_InitState, hidDescriptorBuffer, reportDescriptorBuffer), so only one HID
+// interface may be initialised at a time. Composite devices that expose several
+// HID interfaces at once (e.g. the Flydigi Vader 4 Pro dongle before it switches
+// to XInput) otherwise corrupt that state and freeze the console.
+volatile bool g_hidInitBusy = false;
+DWORD g_hidInitStart = 0;
+inline void HidInitFinished() { g_hidInitBusy = false; }
 #define USB_ENDPOINT_TYPE_CONTROL     0x00
 #define USB_ENDPOINT_TYPE_ISOCHRONOUS 0x01
 #define USB_ENDPOINT_TYPE_BULK        0x02
@@ -278,6 +287,8 @@ struct Controller {
 	// for nintendo specific handshake
 	NINTENDO_HANDSHAKE_STATE nintendo_handshake_state;
 	UsbTrb interruptTrb;
+
+	void* devDesc; // device descriptor of the USB device this controller belongs to
 } __declspec(align(4));
 
 struct MappingState {
@@ -399,6 +410,7 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 	if (status != 0) {
 		DbgPrint("EINTIM: Control transfer failed with status %x!\n", status);
 		g_InitState = INIT_FAILED;
+		HidInitFinished();
 		return status;
 	}
 
@@ -413,6 +425,7 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 		if (hidDescriptorBuffer.wDescriptorLength == 0) {
 			DbgPrint("EINTIM: ERROR - HID descriptor length is 0!\n");
 			g_InitState = INIT_FAILED;
+			HidInitFinished();
 			return -1;
 		}
 
@@ -443,16 +456,11 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 			hidDescriptorBuffer.wDescriptorLength,
 			&reportInfo);
 
-		c.reportInfo = reportInfo;
-		c.reportId = FindGamepadReportId(reportInfo);
-
-		DbgPrint("EINTIM: Parsed descriptor. UsingReportIDs: %d, Report ID: %d\r\n",
-			(int)reportInfo->UsingReportIDs, c.reportId);
-
 		if (parseResult != HID_PARSE_Successful || !reportInfo) {
 			DbgPrint("EINTIM: Failed to parse HID descriptor: error %d\r\n", parseResult);
 			g_InitState = InitState::INIT_FAILED;
 			free(reportDescriptorBuffer);
+			HidInitFinished();
 			return -1;
 		}
 
@@ -480,6 +488,7 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 
 		if (NT_ERROR(status)) {
 			DbgPrint("EINTIM: Failed to open interrupt endpoint %x!\n", status);
+			HidInitFinished();
 			return status;
 		}
 
@@ -502,6 +511,7 @@ int32_t setConfigurationComplete(DWORD deviceHandle, int32_t status) {
 		connectedControllers[globalIndex] = c;
 
 		DbgPrint("EINTIM: Registered virtual controller inside XAM with index: %d.\n", userIndex);
+		HidInitFinished();
 
 		if (NeedsDualshock3Handshake(c.vendorId, c.productId)) {
 			DbgPrint("EINTIM: Sending dualshock3 handshake!\r\n");
@@ -1205,6 +1215,7 @@ int HidRemoveDeviceHook(deviceHandle* deviceHandle2) {
 		DbgPrint("EINTIM: Removed virtual controller from XAM.\n");
 		return 0;
 	}
+	return 0;
 }
 
 int reportData = 0;
@@ -1239,6 +1250,28 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 			DbgPrint("EINTIM: ERROR - Invalid HID descriptor type %02x!\n", hid_descriptor->bDescriptorType);
 			return HidAddDeviceDetour.GetOriginal<decltype(&HidAddDeviceHook)>()(deviceHandle);
 		}
+
+		// Devices that only pass through HID mode before re-enumerating as an
+		// XInput pad. Claiming them is pointless (and they expose several HID
+		// interfaces at once); the stock driver ignores them until they switch.
+		if (vendorId == 0x04B4 && productId == 0x2412) { // Flydigi Vader 4 Pro 2.4 GHz dongle (boot/HID mode)
+			DbgPrint("EINTIM: Flydigi dongle in HID mode, leaving it to the stock driver\n");
+			return HidAddDeviceDetour.GetOriginal<decltype(&HidAddDeviceHook)>()(deviceHandle);
+		}
+
+		// One HID interface at a time (init state is global), and only one per device.
+		if (g_hidInitBusy && GetTickCount() - g_hidInitStart < 3000) {
+			DbgPrint("EINTIM: Another HID controller is initialising, leaving interface %d to the stock driver\n",
+				interface_descriptor->bInterfaceNumber);
+			return HidAddDeviceDetour.GetOriginal<decltype(&HidAddDeviceHook)>()(deviceHandle);
+		}
+		for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
+			if (connectedControllers[i].controllerDriver && connectedControllers[i].devDesc == (void*)device_descriptor) {
+				DbgPrint("EINTIM: Device already has a controller interface, leaving interface %d to the stock driver\n",
+					interface_descriptor->bInterfaceNumber);
+				return HidAddDeviceDetour.GetOriginal<decltype(&HidAddDeviceHook)>()(deviceHandle);
+			}
+		}
 		
 		int index = -1;
 		for (int i = 0; i < (sizeof(connectedControllers) / sizeof(Controller)); i++) {
@@ -1263,6 +1296,7 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 		c.productId = productId;
 		c.map = FindMapping(vendorId, productId);
 		c.nintendo_handshake_state = NINTENDO_HANDSHAKE_STATE::INITIAL;
+		c.devDesc = (void*)device_descriptor;
 
 		HidControllerExtension* controllerDriver = new HidControllerExtension();
 		c.deviceHandle = deviceHandle;
@@ -1286,6 +1320,8 @@ int HidAddDeviceHook(deviceHandle* deviceHandle) {
 		}
 
 		// Set device configuration (required for proper USB enumeration)
+		g_hidInitBusy = true;
+		g_hidInitStart = GetTickCount();
 		g_InitState = InitState::INIT_SET_CONFIGURATION;
 		DbgPrint("EINTIM: Sending SET_CONFIGURATION\n");
 		SendControlRequest(
@@ -1360,10 +1396,15 @@ DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_C
 		capabilities->Vibration.wRightMotorSpeed = 0;
 		return ERROR_SUCCESS;
 	}
+	return status;
 }
 
 NTSTATUS XInputdReadStateHook(DWORD dwDeviceContext, PDWORD pdwPacketNumber, PXINPUT_GAMEPAD pInputData, PBOOL unk) {
-	if (dwDeviceContext >= 0x0000000010000005) {
+	// Only handle our own virtual controllers (contexts 0x10000005..0x10000008).
+	// XInputd routes by the top nibble of the context, and wired XInput pads
+	// (WGC driver) use 0x2000000x, so a bare ">= 0x10000005" also swallowed every
+	// wired controller and returned an error instead of its input.
+	if (dwDeviceContext >= 0x0000000010000005 && dwDeviceContext < 0x0000000010000005 + 4) {
 		if (!pInputData)
 			return ERROR_INVALID_PARAMETER;
 
@@ -1461,6 +1502,68 @@ NTSTATUS XInputdReadStateHook(DWORD dwDeviceContext, PDWORD pdwPacketNumber, PXI
 	return XInputdReadStateDetour.GetOriginal<decltype(&XInputdReadStateHook)>()(dwDeviceContext, pdwPacketNumber, pInputData, unk);
 }
 
+
+// ----------------------------------------------------------------------------
+// Third-party wired XInput pads (e.g. Flydigi Vader 4 Pro)
+//
+// The stock WGC (wired XInput) driver's interrupt-IN completion routine only
+// treats a transfer as an input report when exactly 20 bytes were received:
+//     lwz    r11, 0x24(r31)    ; actual length of the IN transfer
+//     lwz    r29, 0x1C(r31)    ; buffer
+//     cmplwi cr6, r11, 0x14
+//     stb    r10, 0x98(r31)
+//     bne    cr6, not_input    ; <-- patched to: blt cr6, not_input
+//     lbz    r11, 0(r29)       ; report type must be 0x00
+//     cmplwi r11, 0
+//     bne    not_input
+//     lbz    r11, 1(r29)       ; report length byte must be 0x14
+//     cmplwi cr6, r11, 0x14
+// Many third-party pads send longer transfers (the Vader 4 Pro sends 32 bytes:
+// the 20-byte report followed by motion data), so the pad binds to a player but
+// every input report is dropped. Accepting >= 20 bytes fixes it. The driver's IN
+// buffers are 64 bytes, genuine pads (exactly 20) are unaffected, and the
+// following 00 14 header check still filters out non-input messages.
+//
+// The instruction is located by pattern near the WgcAddDevice check that
+// UsbdSecPatch also uses, and only patched on an exact single match.
+// Verified on retail 17559 (patch lands at 0x800F9490).
+// ----------------------------------------------------------------------------
+#define WGC_ADDDEVICE_SITE_17559     0x800F98E0
+#define WGC_ADDDEVICE_SITE_17489_DEV 0x801341F4
+
+bool PatchWgcInputLengthCheck(bool devkit) {
+	DWORD site = devkit ? WGC_ADDDEVICE_SITE_17489_DEV : WGC_ADDDEVICE_SITE_17559;
+	DWORD start = (site & ~0xFFF) - 0x2000, end = (site & ~0xFFF) + 0x2000;
+	DWORD found = 0;
+	int matches = 0;
+
+	for (DWORD page = start; page < end; page += 0x1000) {
+		if (!MmIsAddressValid((PVOID)page))
+			return false;
+	}
+
+	for (DWORD a = start; a + 40 <= end; a += 4) {
+		DWORD* w = (DWORD*)a;
+		if (w[0] == 0x817F0024 && w[1] == 0x83BF001C && w[2] == 0x2B0B0014 && w[3] == 0x995F0098 &&
+			((w[4] & 0xFFFF0000) == 0x409A0000 || (w[4] & 0xFFFF0000) == 0x41980000) &&
+			w[5] == 0x897D0000 && w[6] == 0x280B0000 && (w[7] & 0xFFFF0000) == 0x40820000 &&
+			w[8] == 0x897D0001 && w[9] == 0x2B0B0014) {
+			found = a + 16;
+			matches++;
+		}
+	}
+
+	if (matches != 1) {
+		DbgPrint("EINTIM: WGC input length check not found (%d matches), not patching\n", matches);
+		return false;
+	}
+
+	DWORD before = *(DWORD*)found;
+	if ((before & 0xFFFF0000) == 0x409A0000)
+		*(DWORD*)found = 0x41980000 | (before & 0x0000FFFF); // bne cr6 -> blt cr6, same target
+	DbgPrint("EINTIM: WGC input length check patched at %p\n", found);
+	return true;
+}
 
 void* XamInputSetState = nullptr;
 void* XamInputGetCapabilitiesEx = nullptr;
@@ -1581,6 +1684,9 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 
 		HidAddDeviceDetour.Install();
 		HidRemoveDeviceDetour.Install();
+
+		// Let third-party wired XInput pads that send >20-byte reports work
+		PatchWgcInputLengthCheck(isDevkit);
 
 		XamInputGetCapabilitiesDetour = Detour(XamInputGetCapabilitiesEx, (void*)XamInputGetCapabilitiesExHook);
 		XamInputSetStateDetour = Detour(XamInputSetState, (void*)XamInputSetStateHook);
