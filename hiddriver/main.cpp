@@ -1466,11 +1466,77 @@ void* XamInputSetState = nullptr;
 void* XamInputGetCapabilitiesEx = nullptr;
 void* XInputdReadStatePtr = nullptr;
 uint16_t* XNotifyTimerPtr = nullptr;
+uint16_t* XNotifyTypeLimitPtr = nullptr;
 bool isDevkit = true;
 DWORD UsbPhysicalPage = 0;
 void* NotificationPatchPtr = nullptr;
-bool initFunctionPointers() {
-	isDevkit = *(uint32_t*)(0x8010D334) == 0x00000000;
+void* HidAddDeviceAddress = nullptr;
+void* HidRemoveDeviceAddress = nullptr;
+bool g_SkipUsbDriverReset = false;
+
+// The retail 17502 build is not covered by the hard-coded offsets below.
+// Search only for known function signatures, and require each one to be unique
+// before installing a hook. 0x80000000-0x81800000 covers the kernel/XAM
+// address range used by the supported retail build.
+void* FindUniqueSignature(
+	const BYTE* signature,
+	const char* mask,
+	size_t signatureLength,
+	const char* name) {
+	const uintptr_t scanStart = 0x80000000;
+	const uintptr_t scanEnd = 0x81800000;
+	void* match = nullptr;
+	unsigned int matchCount = 0;
+
+	if (signatureLength == 0 || signatureLength > scanEnd - scanStart)
+		return nullptr;
+
+	for (uintptr_t pageStart = scanStart; pageStart < scanEnd; pageStart += 0x1000) {
+		if (!MmIsAddressValid((void*)pageStart))
+			continue;
+
+		uintptr_t pageEnd = pageStart + 0x1000;
+		if (pageEnd > scanEnd)
+			pageEnd = scanEnd;
+		if (pageEnd - pageStart < signatureLength)
+			continue;
+
+		for (uintptr_t address = pageStart;
+			address <= pageEnd - signatureLength;
+			address += sizeof(DWORD)) {
+			const BYTE* candidate = (const BYTE*)address;
+			size_t i = 0;
+			for (; i < signatureLength; ++i) {
+				if (mask[i] != '?' && candidate[i] != signature[i])
+					break;
+			}
+			if (i == signatureLength) {
+				match = (void*)address;
+				if (++matchCount > 1)
+					break;
+			}
+		}
+		if (matchCount > 1)
+			break;
+	}
+
+	if (matchCount != 1) {
+		DbgPrint("EINTIM: Signature for %s matched %d times; refusing to hook.\n", name, matchCount);
+		return nullptr;
+	}
+
+	DbgPrint("EINTIM: Resolved %s at %08X.\n", name, (DWORD)match);
+	return match;
+}
+
+bool HasExpectedInstruction(uintptr_t address, DWORD expected) {
+	return MmIsAddressValid((void*)address) && *(DWORD*)address == expected;
+}
+
+bool initFunctionPointers(bool is17502Retail) {
+	// 17502 is a retail dashboard build. Avoid probing a 17559-specific address
+	// to distinguish devkits on this older kernel.
+	isDevkit = is17502Retail ? false : (*(uint32_t*)(0x8010D334) == 0x00000000);
 	HANDLE kernelHandle = GetModuleHandleA("xboxkrnl.exe");
 
 	if (!kernelHandle) {
@@ -1479,6 +1545,10 @@ bool initFunctionPointers() {
 	}
 
 	HANDLE xamHandle = GetModuleHandleA("xam.xex");
+	if (!xamHandle) {
+		DbgPrint("EINTIM: COULDNT GET XAM HANDLE!\n");
+		return false;
+	}
 
 	XexGetProcedureAddress(kernelHandle, 759, &UsbdGetDeviceDescriptor);
 	XexGetProcedureAddress(kernelHandle, 744, &UsbdGetEndpointDescriptor);
@@ -1496,8 +1566,101 @@ bool initFunctionPointers() {
 	XexGetProcedureAddress(xamHandle, 685, &XamInputGetCapabilitiesEx);
 	XexGetProcedureAddress(xamHandle, 402, &XamInputSetState);
 	XexGetProcedureAddress(xamHandle, 1183, &NotificationPatchPtr);
+	if (!UsbdGetDeviceDescriptor || !UsbdGetEndpointDescriptor ||
+		!UsbdAddDeviceComplete || !UsbdOpenDefaultEndpoint || !UsbdOpenEndpoint ||
+		!UsbdGetDeviceSpeed || !UsbdQueueAsyncTransfer || !UsbdQueueCloseEndpoint ||
+		!UsbdQueueCloseDefaultEndpoint || !UsbdRemoveDeviceComplete ||
+		!XInputdReadStatePtr || !XamInputGetCapabilitiesEx || !XamInputSetState ||
+		(!is17502Retail && !MmFreePhysicalMemory)) {
+		DbgPrint("EINTIM: Required kernel/XAM exports were not resolved.\n");
+		return false;
+	}
 
-	if (isDevkit) {
+	if (is17502Retail) {
+		// Resolve 17502 functions only when their signatures have one runtime match.
+		// Missing or ambiguous required matches abort plugin initialization.
+		static const BYTE hidAddSignature[] = {
+			0x7D, 0x88, 0x02, 0xA6, 0, 0, 0, 0, 0x94, 0x21, 0, 0,
+			0x7C, 0x7B, 0x1B, 0x78, 0, 0, 0, 0, 0x7C, 0x7F, 0x1B, 0x79
+		};
+		static const char hidAddMask[] = "xxxx????xx??xxxx????xxxx";
+		static const BYTE hidRemoveSignature[] = {
+			0x81, 0x63, 0, 0, 0x39, 0x40, 0, 0, 0x39, 0x20, 0, 0, 0x99, 0x4B
+		};
+		static const char hidRemoveMask[] = "xx??xx??xx??xx";
+		static const BYTE interfaceDescriptorSignature[] = {
+			0x89, 0x43, 0, 0, 0x3D, 0x60, 0, 0, 0x39, 0x6B, 0, 0,
+			0x55, 0x4A, 0xFF, 0x3A, 0x7D, 0x6A,
+			0x58, 0x2E, 0xA1, 0x4B
+		};
+		static const char interfaceDescriptorMask[] = "xx??xx??xx??xxxxxxxxxx";
+		static const BYTE bindDeviceSignature[] = {
+			0x7C, 0x8B, 0x23, 0x78, 0x7C, 0xA4, 0x2B, 0x78, 0x54, 0xCA, 0x06, 0x3F
+		};
+		static const char bindDeviceMask[] = "xxxxxxxxxxxx";
+		static const BYTE notifyConfigSignature[] = {
+			0x81, 0x4A, 0x00, 0xE0, 0x2B, 0x0A, 0x00, 0x2F,
+			0x39, 0x40, 0x27, 0x10, 0x41, 0x9A, 0x00, 0x08,
+			0x39, 0x40, 0x13, 0x88, 0x91, 0x4B, 0x00, 0x18,
+			0x3D, 0x40, 0x81, 0x5F
+		};
+		static const char notifyConfigMask[] = "xxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+
+		HidAddDeviceAddress = FindUniqueSignature(
+			hidAddSignature, hidAddMask, sizeof(hidAddSignature), "HidAddDevice");
+		HidRemoveDeviceAddress = FindUniqueSignature(
+			hidRemoveSignature, hidRemoveMask, sizeof(hidRemoveSignature), "HidRemoveDevice");
+		UsbdGetInterfaceDescriptor = (usb_interface_descriptor_func_t)FindUniqueSignature(
+			interfaceDescriptorSignature, interfaceDescriptorMask,
+			sizeof(interfaceDescriptorSignature), "UsbdGetInterfaceDescriptor");
+		XamUserBindDeviceCallback = (xam_user_bind_device_callback_func_t)FindUniqueSignature(
+			bindDeviceSignature, bindDeviceMask, sizeof(bindDeviceSignature), "XamUserBindDeviceCallback");
+		void* notifyConfig = FindUniqueSignature(
+			notifyConfigSignature, notifyConfigMask, sizeof(notifyConfigSignature), "XAM notification config");
+		if (notifyConfig) {
+			// The matched PPC block has the type limit immediate at +6 and timer
+			// immediate at +10. The 17502 XAM contains one exact match.
+			XNotifyTypeLimitPtr = (uint16_t*)((BYTE*)notifyConfig + 6);
+			XNotifyTimerPtr = (uint16_t*)((BYTE*)notifyConfig + 10);
+		}
+
+		if (!HidAddDeviceAddress || !HidRemoveDeviceAddress ||
+			!UsbdGetInterfaceDescriptor || !XamUserBindDeviceCallback) {
+			DbgPrint("EINTIM: Could not resolve all 17502 retail signatures.\n");
+			return false;
+		}
+
+		// 17502's reset sites were recovered from the exact retail kernel image.
+		// Verify every patch site first; if the running kernel differs, keep the
+		// USB stack intact and fall back to reconnecting controllers after load.
+		UsbdDriverEntry = (usbd_powerdown_notification_func_t)0x800D9D58;
+		UsbdPowerDownNotification = (usbd_powerdown_notification_func_t)0x800DA018;
+		UsbPhysicalPage = 0x801A8DF8;
+		g_SkipUsbDriverReset = true;
+		const bool resetSitesMatch = MmFreePhysicalMemory &&
+			HasExpectedInstruction(0x800D9D58, 0x7D8802A6) &&
+			HasExpectedInstruction(0x800D9D60, 0x9421FF70) &&
+			HasExpectedInstruction(0x800D9DB4, 0x3F80801B) &&
+			HasExpectedInstruction(0x800D9DB8, 0x93FC8DF8) &&
+			HasExpectedInstruction(0x800DA018, 0x3D60800E) &&
+			HasExpectedInstruction(0x800E1634, 0x40820018) &&
+			HasExpectedInstruction(0x800DE930, 0x40820018) &&
+			HasExpectedInstruction(0x800D9F50, 0x4BF8DB19) &&
+			HasExpectedInstruction(0x800D9F40, 0x4BF97079) &&
+			MmIsAddressValid((void*)UsbPhysicalPage);
+		if (resetSitesMatch) {
+			*(DWORD*)0x800E1634 = 0x48000018;
+			*(DWORD*)0x800DE930 = 0x48000018;
+			*(DWORD*)0x800D9F50 = 0x60000000;
+			*(DWORD*)0x800D9F40 = 0x60000000;
+			g_SkipUsbDriverReset = false;
+			DbgPrint("EINTIM: Verified 17502 USB reset sites.\n");
+		}
+		else {
+			DbgPrint("EINTIM: 17502 USB reset sites differ; keeping USB running. Reconnect controllers after load.\n");
+		}
+	}
+	else if (isDevkit) {
 		DbgPrint("EINTIM: Running in devkit mode\n");
 		UsbdGetInterfaceDescriptor = (usb_interface_descriptor_func_t)0x8010D2D0; // 89 43 ? ? 3D 60 ? ? 89 2D ? ? 39 6B ? ? 55 4A FF 3A 2B 09 ? ? 7D 6A 58 2E ? ? ? ? ? ? ? ? 89 4D ? ? 2B 0A ? ? ? ? ? ? ? ? ? ? 81 4B ? ? 7F 03 50 40 ? ? ? ? ? ? ? ? A1 4B very bad direct signature. XREF sig: 89 63 ? ? 38 A1
 		XamUserBindDeviceCallback = (xam_user_bind_device_callback_func_t)0x817A34B8; // 7C 8B 23 78 7C A4 2B 78 54 CA 06 3F
@@ -1521,8 +1684,10 @@ bool initFunctionPointers() {
 		*(DWORD*)0x8010E05C = 0x60000000;
 		UsbPhysicalPage = 0x8020A9B8;
 
-		*(uint16_t*)0x8176A7C6 = 80; // Register custom notification type condition
+		XNotifyTypeLimitPtr = (uint16_t*)0x8176A7C6; // Register custom notification type condition
 		XNotifyTimerPtr = (uint16_t*)0x8176a7ca;
+		HidAddDeviceAddress = (void*)0x8011AE38;
+		HidRemoveDeviceAddress = (void*)0x8011ADF8;
 	}
 	else {
 		DbgPrint("EINTIM: Running in retail mode\n");
@@ -1540,15 +1705,31 @@ bool initFunctionPointers() {
 		*(DWORD*)0x800D8EF0 = 0x60000000;
 		UsbPhysicalPage = 0x801A8098;
 
-		*(uint16_t*)0x816AB7A6 = 80; // Register custom notification type condition
+		XNotifyTypeLimitPtr = (uint16_t*)0x816AB7A6; // Register custom notification type condition
 		XNotifyTimerPtr = (uint16_t*)0x816ab7aa;
+		HidAddDeviceAddress = (void*)0x800E4D68;
+		HidRemoveDeviceAddress = (void*)0x800E4D28;
 	}
 
-	*XNotifyTimerPtr = 1500;
+	if (XNotifyTypeLimitPtr)
+		*XNotifyTypeLimitPtr = 80;
+	if (XNotifyTimerPtr)
+		*XNotifyTimerPtr = 1500;
 
 	// Patches notification handling to work without JRPC2, Thanks crow!
-	if (*(short*)((uintptr_t)(NotificationPatchPtr) + 48) == 0x409A) {
+	// This guarded branch patch also matches the 17502 retail XAM ordinal 1183.
+	if (NotificationPatchPtr && *(short*)((uintptr_t)(NotificationPatchPtr) + 48) == 0x409A) {
 		*(short*)((uintptr_t)(NotificationPatchPtr) + 48) = 0x4800;
+	}
+	if (!UsbdGetInterfaceDescriptor || !XamUserBindDeviceCallback ||
+		!HidAddDeviceAddress || !HidRemoveDeviceAddress) {
+		DbgPrint("EINTIM: Required HID functions were not resolved.\n");
+		return false;
+	}
+	if (!g_SkipUsbDriverReset &&
+		(!UsbdPowerDownNotification || !UsbdDriverEntry || !UsbPhysicalPage)) {
+		DbgPrint("EINTIM: Required USB reset functions were not resolved.\n");
+		return false;
 	}
 
 	return true;
@@ -1556,13 +1737,14 @@ bool initFunctionPointers() {
 
 BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 	if (Reason == DLL_PROCESS_ATTACH) {
-		if ((XboxKrnlVersion->Build != 17559 && XboxKrnlVersion->Build != 17489) || IsTrayOpen()) {
-			DbgPrint("EINTIM: Only 17559 and 17489 dashboards are currently supported or the disk tray is open. Aborting launch...\n");
+		const bool is17502Retail = XboxKrnlVersion->Build == 17502;
+		if ((XboxKrnlVersion->Build != 17559 && XboxKrnlVersion->Build != 17489 && !is17502Retail) || IsTrayOpen()) {
+			DbgPrint("EINTIM: Supported dashboards are 17559 retail, 17489 devkit, and experimental 17502 retail; the disk tray must be closed. Aborting launch...\n");
 			return FALSE;
 		}
 
 		DbgPrint("EINTIM: HELLO from xbox 360 HID controller driver version 0.6 beta\n");
-		if (!initFunctionPointers())
+		if (!initFunctionPointers(is17502Retail))
 			return FALSE;
 
 		DbgPrint("EINTIM: Loading mappings!\r\n");
@@ -1570,14 +1752,8 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 			DbgPrint("EINTIM: Failed to load mappings(JSON either doesn't exist yet or syntax error)!\r\n");
 		}
 
-		if (isDevkit) {
-			HidAddDeviceDetour = Detour((void*)0x8011AE38, (void*)HidAddDeviceHook); // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 7C 7C 1B 78 ? ? ? ? 7C 7F 1B 79
-			HidRemoveDeviceDetour = Detour((void*)0x8011ADF8, (void*)HidRemoveDeviceHook); // 81 63 ? ? 39 40 ? ? 39 20 ? ? 99 4B
-		}
-		else {
-			HidAddDeviceDetour = Detour((void*)0x800E4D68, (void*)HidAddDeviceHook); // 7D 88 02 A6 ? ? ? ? 94 21 ? ? 7C 7B 1B 78 ? ? ? ? 7C 7F 1B 79
-			HidRemoveDeviceDetour = Detour((void*)0x800E4D28, (void*)HidRemoveDeviceHook); // 81 63 ? ? 39 40 ? ? 39 20 ? ? 99 4B
-		}
+		HidAddDeviceDetour = Detour(HidAddDeviceAddress, (void*)HidAddDeviceHook);
+		HidRemoveDeviceDetour = Detour(HidRemoveDeviceAddress, (void*)HidRemoveDeviceHook);
 
 		HidAddDeviceDetour.Install();
 		HidRemoveDeviceDetour.Install();
@@ -1591,16 +1767,21 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 		XInputdReadStateDetour.Install();
 		DbgPrint("EINTIM: Hooks installed\n");
 
-		// This is a dirty way of forcing the system to reenumerate USB devices so you don't need to replug the controllers
-		DbgPrint("EINTIM: Resetting USB driver!\n");
-		UsbdPowerDownNotification();
+		if (!g_SkipUsbDriverReset) {
+			// This is a dirty way of forcing the system to reenumerate USB devices so you don't need to replug the controllers
+			DbgPrint("EINTIM: Resetting USB driver!\n");
+			UsbdPowerDownNotification();
 
-		// For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
-		MmFreePhysicalMemory(0, *(DWORD*)UsbPhysicalPage);
-		DbgPrint("EINTIM: USB driver shutdown complete.\n");
+			// For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
+			MmFreePhysicalMemory(0, *(DWORD*)UsbPhysicalPage);
+			DbgPrint("EINTIM: USB driver shutdown complete.\n");
 
-		UsbdDriverEntry();
-		DbgPrint("EINTIM: USB driver reset complete.\n");
+			UsbdDriverEntry();
+			DbgPrint("EINTIM: USB driver reset complete.\n");
+		}
+		else {
+			DbgPrint("EINTIM: 17502 mode keeps the USB stack running; reconnect controllers after loading the plugin.\n");
+		}
 
 		// Start mapping manager thread
 		MakeThread((LPTHREAD_START_ROUTINE)MappingManagerThreadProc, nullptr);

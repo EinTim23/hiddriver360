@@ -2,7 +2,7 @@
 Experimental on-console HID driver focussing on providing third party, non xinput controller support to the xbox 360 without dongles.
 
 ## What works
-- Supports both 17559 retail and 17489 devkit dashboards
+- Supports 17559 retail and 17489 devkit dashboards, with experimental 17502 retail support
 - Reading controller input via USB
 - Up to 4 concurrent controllers, in combination with original xbox 360 controllers or without them
 - Controllers are registered inside xam and therefore fully recognized in the entire xbox 360 user interface, ring of light will update accordingly, no original controllers are needed etc
