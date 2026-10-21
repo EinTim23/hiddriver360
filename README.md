@@ -3,13 +3,14 @@ Experimental on-console HID driver focussing on providing third party, non xinpu
 
 ## What works
 - Supports both 17559 retail and 17489 devkit dashboards
+- Experimental support for the 17502 retail dashboard (connect controllers after loading the plugin, the USB stack is not reset on this build)
 - Reading controller input via USB
 - Up to 4 concurrent controllers, in combination with original xbox 360 controllers or without them
 - Controllers are registered inside xam and therefore fully recognized in the entire xbox 360 user interface, ring of light will update accordingly, no original controllers are needed etc
 - The controller works in all tested games
 
 ## Current limitations
-- no rumble support
+- rumble is only supported on the DualSense and DualSense Edge over USB
 
 ## Supported controllers
 - DualShock 4 (PS4 controller)

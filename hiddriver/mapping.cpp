@@ -113,7 +113,9 @@ static HidDeviceMapping kStaticDeviceMappings[] = {
     },
 };
 
-std::vector<HidDeviceMapping> g_dynamicMappings;
+// A deque never moves existing elements on push_back, so the map pointers
+// held by connected controllers stay valid when a new mapping is added.
+std::deque<HidDeviceMapping> g_dynamicMappings;
 std::vector<std::unique_ptr<DynamicMappingData>> g_dynamicData;
 
 HidDeviceMapping* FindStaticMapping(uint16_t vid, uint16_t pid) {

@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <deque>
 #include <memory>
 #include "usb.h"
 #define RAPIDJSON_ENDIAN RAPIDJSON_BIGENDIAN
@@ -43,7 +44,7 @@ struct DynamicMappingData {
     std::vector<HidButtonMapEntry> buttonEntries;
 };
 
-extern std::vector<HidDeviceMapping> g_dynamicMappings;
+extern std::deque<HidDeviceMapping> g_dynamicMappings;
 extern std::vector<std::unique_ptr<DynamicMappingData>> g_dynamicData;
 
 HidDeviceMapping* FindStaticMapping(uint16_t vid, uint16_t pid);
