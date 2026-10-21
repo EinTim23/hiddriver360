@@ -1381,8 +1381,8 @@ NTSTATUS XInputdReadStateHook(DWORD dwDeviceContext, PDWORD pdwPacketNumber, PXI
 			}
 		}
 
-		if (!c)
-			return ERROR_INVALID_PARAMETER;
+			if (!c)
+				return XInputdReadStateDetour.GetOriginal<decltype(&XInputdReadStateHook)>()(dwDeviceContext, pdwPacketNumber, pInputData, unk);
 
 		if (b.xbox) {
 			DWORD now = GetTickCount();
