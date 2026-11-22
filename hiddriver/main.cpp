@@ -33,6 +33,8 @@ BOOL IsTrayOpen() {
 HANDLE MakeThread(LPTHREAD_START_ROUTINE Address, PVOID arg) {
 	HANDLE Handle = 0;
 	ExCreateThread(&Handle, 0, 0, XapiThreadStartup, Address, arg, (EX_CREATE_FLAG_SUSPENDED | EX_CREATE_FLAG_SYSTEM | 0x18000424));
+	if (!Handle)
+		return 0;
 	XSetThreadProcessor(Handle, 4);
 	SetThreadPriority(Handle, THREAD_PRIORITY_NORMAL);
 	ResumeThread(Handle);
@@ -40,6 +42,31 @@ HANDLE MakeThread(LPTHREAD_START_ROUTINE Address, PVOID arg) {
 }
 
 void XNotifyUI(XNOTIFYQUEUEUI_TYPE Type, PWCHAR String) { XNotifyQueueUI(Type, XUSER_INDEX_ANY, XNOTIFYUI_PRIORITY_DEFAULT, String, 0); }
+
+#ifndef FILE_OPEN
+#define FILE_OPEN 0x00000001
+#endif
+
+// Resetting the usb driver also tears down usb storage. If a usb drive is connected it's most likely what we
+// (and everything else on bad update) were just loaded from, and the power down deadlocks waiting on it.
+bool IsUsbStorageConnected() {
+	for (int i = 0; i < 3; i++) {
+		char path[32];
+		sprintf_s(path, sizeof(path), "\\Device\\Mass%d", i);
+		STRING name;
+		RtlInitAnsiString(&name, path);
+		OBJECT_ATTRIBUTES attributes;
+		InitializeObjectAttributes(&attributes, &name, OBJ_CASE_INSENSITIVE, NULL);
+		IO_STATUS_BLOCK io;
+		HANDLE device;
+		if (NtCreateFile(&device, SYNCHRONIZE | FILE_READ_ATTRIBUTES, &attributes, &io, NULL, 0,
+			FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT) >= 0) {
+			NtClose(device);
+			return true;
+		}
+	}
+	return false;
+}
 
 struct UsbTrb {
 	DWORD endpoint;
@@ -1360,6 +1387,9 @@ DWORD XamInputGetCapabilitiesExHook(DWORD unk, DWORD user, DWORD flags, XINPUT_C
 		capabilities->Vibration.wRightMotorSpeed = 0;
 		return ERROR_SUCCESS;
 	}
+
+	// Real controllers and every other error end up here, this used to fall off the end and return garbage
+	return status;
 }
 
 NTSTATUS XInputdReadStateHook(DWORD dwDeviceContext, PDWORD pdwPacketNumber, PXINPUT_GAMEPAD pInputData, PBOOL unk) {
@@ -1480,6 +1510,11 @@ bool initFunctionPointers() {
 
 	HANDLE xamHandle = GetModuleHandleA("xam.xex");
 
+	if (!xamHandle) {
+		DbgPrint("EINTIM: COULDNT GET XAM HANDLE!\n");
+		return false;
+	}
+
 	XexGetProcedureAddress(kernelHandle, 759, &UsbdGetDeviceDescriptor);
 	XexGetProcedureAddress(kernelHandle, 744, &UsbdGetEndpointDescriptor);
 	XexGetProcedureAddress(kernelHandle, 740, &UsbdAddDeviceComplete);
@@ -1496,6 +1531,15 @@ bool initFunctionPointers() {
 	XexGetProcedureAddress(xamHandle, 685, &XamInputGetCapabilitiesEx);
 	XexGetProcedureAddress(xamHandle, 402, &XamInputSetState);
 	XexGetProcedureAddress(xamHandle, 1183, &NotificationPatchPtr);
+
+	// Every one of these gets detoured or called blindly later on, a null one means writing to address 0 and a hard freeze
+	if (!UsbdGetDeviceDescriptor || !UsbdGetEndpointDescriptor || !UsbdAddDeviceComplete || !UsbdOpenDefaultEndpoint ||
+		!UsbdOpenEndpoint || !UsbdGetDeviceSpeed || !UsbdQueueAsyncTransfer || !UsbdQueueCloseEndpoint ||
+		!UsbdQueueCloseDefaultEndpoint || !UsbdRemoveDeviceComplete || !MmFreePhysicalMemory || !XInputdReadStatePtr ||
+		!XamInputGetCapabilitiesEx || !XamInputSetState) {
+		DbgPrint("EINTIM: Failed to resolve required kernel/xam exports. Aborting launch...\n");
+		return false;
+	}
 
 	if (isDevkit) {
 		DbgPrint("EINTIM: Running in devkit mode\n");
@@ -1547,7 +1591,7 @@ bool initFunctionPointers() {
 	*XNotifyTimerPtr = 1500;
 
 	// Patches notification handling to work without JRPC2, Thanks crow!
-	if (*(short*)((uintptr_t)(NotificationPatchPtr) + 48) == 0x409A) {
+	if (NotificationPatchPtr && *(short*)((uintptr_t)(NotificationPatchPtr) + 48) == 0x409A) {
 		*(short*)((uintptr_t)(NotificationPatchPtr) + 48) = 0x4800;
 	}
 
@@ -1591,16 +1635,22 @@ BOOL APIENTRY DllMain(HANDLE Handle, DWORD Reason, PVOID Reserved) {
 		XInputdReadStateDetour.Install();
 		DbgPrint("EINTIM: Hooks installed\n");
 
-		// This is a dirty way of forcing the system to reenumerate USB devices so you don't need to replug the controllers
-		DbgPrint("EINTIM: Resetting USB driver!\n");
-		UsbdPowerDownNotification();
+		if (IsUsbStorageConnected()) {
+			// Controllers that were plugged in before boot need a replug, newly plugged ones go through the hook as usual
+			DbgPrint("EINTIM: USB storage connected, skipping USB driver reset.\n");
+		}
+		else {
+			// This is a dirty way of forcing the system to reenumerate USB devices so you don't need to replug the controllers
+			DbgPrint("EINTIM: Resetting USB driver!\n");
+			UsbdPowerDownNotification();
 
-		// For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
-		MmFreePhysicalMemory(0, *(DWORD*)UsbPhysicalPage);
-		DbgPrint("EINTIM: USB driver shutdown complete.\n");
+			// For some reason microsoft doesnt clean up this page by themselves in the shutdown notification, so ill do it for them, call me mr nice guy :)
+			MmFreePhysicalMemory(0, *(DWORD*)UsbPhysicalPage);
+			DbgPrint("EINTIM: USB driver shutdown complete.\n");
 
-		UsbdDriverEntry();
-		DbgPrint("EINTIM: USB driver reset complete.\n");
+			UsbdDriverEntry();
+			DbgPrint("EINTIM: USB driver reset complete.\n");
+		}
 
 		// Start mapping manager thread
 		MakeThread((LPTHREAD_START_ROUTINE)MappingManagerThreadProc, nullptr);
